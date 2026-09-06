@@ -92,11 +92,67 @@ Sabit kararlar:
   tıklayıp girebiliyorsun.
 - **Claude'a gel**: AppHost.cs dosyanı göster, resource wiring doğru mu bak.
 
-**Durum**: ⬜ Başlanmadı
+**Durum**: ✅ Review edildi (2026-09-06)
 **Yapılanlar**:
--
-**Doğrulama sonucu**:
-**Review notları**:
+- `global.json` (SDK 10.0.400, rollForward: latestFeature), `Directory.Build.props`
+  (net10.0, nullable/implicit usings enable), `Directory.Packages.props` (Central
+  Package Management) oluşturuldu.
+- Aspire proje şablonları kurulmadığı için önce `dotnet new install Aspire.ProjectTemplates`
+  çalıştırıldı.
+- `dotnet new aspire-servicedefaults -o src/MarketplaceRegulationAgent.ServiceDefaults`
+  ve `dotnet new aspire-apphost -o src/MarketplaceRegulationAgent.AppHost` ile
+  projeler oluşturuldu.
+- `dotnet new sln --format slnx -n MarketplaceRegulationAgent` ile çözüm dosyası
+  oluşturuldu, her iki proje `dotnet sln add` ile eklendi.
+- AppHost projesine `Aspire.Hosting.PostgreSQL` ve `Aspire.Hosting.RabbitMQ`
+  paketleri eklendi (CPM sayesinde versiyonlar otomatik `Directory.Packages.props`'a
+  yazıldı).
+- `AppHost.cs`:
+  ```csharp
+  var builder = DistributedApplication.CreateBuilder(args);
+
+  var postgres = builder.AddPostgres("postgres")
+      .WithImage("pgvector/pgvector", "pg16")
+      .WithVolume("regulationdb-data", "/var/lib/postgresql/data");
+
+  var rabbitmq = builder.AddRabbitMQ("rabbitmq")
+      .WithImage("rabbitmq", "3.12-management")
+      .WithVolume("rabbitmq-data", "/var/lib/rabbitmq");
+
+  var regulationDb = postgres.AddDatabase("regulationdb");
+
+  builder.Build().Run();
+  ```
+- Karşılaşılan ve çözülen hatalar (ileride aynı hataya düşülürse hızlı referans):
+  1. `dotnet new` komutları JSON parse hatası veriyordu → `global.json` boş
+     dosyaydı, geçersiz JSON'du. İçerik doldurulunca düzeldi.
+  2. `NU1008` restore hatası → CPM açıkken `.csproj`'da `PackageReference`
+     üzerinde doğrudan `Version` yazılamıyor; ServiceDefaults şablonunun
+     eklediği versiyonlar `Directory.Packages.props`'a `PackageVersion` olarak
+     taşındı, `.csproj`'dan `Version` attribute'ları kaldırıldı.
+  3. `dotnet add package` / `dotnet restore` "içinde proje bulunamadı" hatası →
+     komutlar kök klasörden değil, ilgili proje klasöründen çalıştırılmalı.
+  4. Aspire dashboard'da `postgres` "Runtime Unhealthy" → Docker Desktop
+     kapalıydı, açılınca düzeldi.
+  5. `postgres.AddDatabase("regulationdb", "postgres")` yazılmıştı — ikinci
+     parametre gerçek veritabanı adını override ediyor, yanlışlıkla `postgres`
+     (varsayılan db) kullanılıyordu. `AddDatabase("regulationdb")` olarak
+     düzeltildi (tek parametre, hem resource adı hem db adı olarak kullanılıyor).
+- Bilinen risk #2 (pgvector paket adı) bu günde gündeme gelmedi çünkü henüz
+  EF Core/Pgvector.EntityFrameworkCore paketi eklenmedi — bu Gün 4'e ertelendi,
+  şimdilik sadece doğru Docker image'ı (`pgvector/pgvector:pg16`) seçildi.
+**Doğrulama sonucu**: `dotnet run` ile AppHost çalıştırıldı, Claude tarafından
+Chrome DevTools ile dashboard'a girilip ekran görüntüsüyle doğrulandı: 3 resource
+da `Running` (yeşil) — `postgres` (image: `pgvector/pgvector:pg16`), `regulationdb`
+(postgres altında nested database), `rabbitmq` (image: `rabbitmq:3.12-management`).
+**Review notları**: Kod doğru ve çalışır durumda. Küçük kozmetik not: RabbitMQ
+management UI'ı manuel image (`3.12-management` tag) ile aktif edildiği için
+Aspire dashboard'ın "URL'ler" sütununda HTTP linki olarak listelenmiyor (sadece
+AMQP tcp portu görünüyor) — fonksiyonel olarak çalışıyor (kullanıcı elle
+`localhost:15672`'ye giderek doğruladı), ama `.WithManagementPlugin()` extension
+metodu kullanılsaydı Aspire bu portu otomatik tanıyıp tıklanabilir link
+üretecekti. Şimdilik bilinçli olarak bu haliyle bırakıldı, ileride istenirse
+düzeltilebilir (kozmetik, bloklayıcı değil).
 
 ---
 

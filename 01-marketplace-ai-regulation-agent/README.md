@@ -27,4 +27,14 @@ bakılabilir (geliştirme sürecine özel, repoya dahil değil).
 
 ## Çalıştırma
 
-_(Gün 1 tamamlanınca buraya eklenecek.)_
+Gerekli: Docker Desktop çalışır durumda olmalı.
+
+```powershell
+cd src/MarketplaceRegulationAgent.AppHost
+dotnet run
+```
+
+Konsolda çıkan Aspire dashboard linkine git. Şu an ayakta olanlar: `postgres`
+(pgvector destekli), `regulationdb` (postgres içindeki veritabanı), `rabbitmq`
+(management arayüzü açık). Api ve ValidationWorker projeleri henüz eklenmedi
+(bkz. [PROGRESS.md](./PROGRESS.md)).

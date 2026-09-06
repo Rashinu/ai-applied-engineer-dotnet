@@ -1,0 +1,18 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
+# Rider / VS
+.idea/
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+*.env.local
+appsettings.*.local.json

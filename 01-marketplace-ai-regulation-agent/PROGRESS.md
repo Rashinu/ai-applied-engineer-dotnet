@@ -3,6 +3,22 @@
 Kural: Bir günün **Durum**'u ✅ Review edildi olmadan bir sonraki güne geçilmez.
 "Yapılanlar / Doğrulama" kısmını sen doldurursun, "Review notları" kısmını ben.
 
+**Tempo notu**: Buradaki "Gün N" etiketleri takvim günü değil — kişisel haftalık
+plandaki sabit .NET kod bloklarından (Salı 19:30-21:00, Cumartesi 11:30-13:30,
+Pazar 19:30-21:00 — haftada ~5 saat garanti coding) her birine karşılık geliyor.
+7 "Gün"lük bu proje planı, bu tempoyla gerçekte ~2-3 haftaya yayılacak; bu
+beklenen ve istenen bir şey, amaç hız değil düzenli ilerleme.
+
+| Gün | Tarih | Hafta günü / blok |
+|-----|-------|--------------------|
+| 1 | 2026-09-06 | Pazar 19:30-21:00 |
+| 2 | | |
+| 3 | | |
+| 4 | | |
+| 5 | | |
+| 6 | | |
+| 7 | | |
+
 ---
 
 ## Mimari (referans — tüm günler boyunca sabit)

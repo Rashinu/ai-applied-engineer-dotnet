@@ -13,7 +13,7 @@ beklenen ve istenen bir şey, amaç hız değil düzenli ilerleme.
 |-----|-------|--------------------|
 | 1 | 2026-09-06 | Pazar 19:30-21:00 |
 | 2 | 2026-09-09 | Çarşamba (plan dışı ek oturum — normalde İş Yeri Projesi bloğu) |
-| 3 | | |
+| 3 | 2026-09-09 | Çarşamba (Gün 2 ile aynı oturumda devam edildi) |
 | 4 | | |
 | 5 | | |
 | 6 | | |
@@ -260,11 +260,91 @@ sakin bir oturumda tekrar okuyup kendi kelimelerinle özetlemek faydalı olur.
 - **Claude'a gel**: Consumer + endpoint kodunu review ettir; MassTransit retry/error
   queue konfigürasyonunu birlikte gözden geçirin.
 
-**Durum**: ⬜ Başlanmadı
+**Durum**: ✅ Review edildi (2026-09-09)
 **Yapılanlar**:
--
-**Doğrulama sonucu**:
-**Review notları**:
+- `Contracts` projesi: `ProductSubmitted(ProductId, TenantId, SubmittedAt)` ve
+  `ProductValidated(ProductId, TenantId, IsCompliant, CategoryMismatch,
+  PriceAnomalyScore, Reasoning, Violations)` record'ları yazıldı. `ProductSubmitted`
+  bilinçli minimal tutuldu (worker DB'den okuyabildiği için); `ProductValidated`
+  ise bilinçli olarak tam detay taşıyor (dinleyen servisler DB'ye erişmesin diye,
+  event-driven mimaride tercih edilen bir yaklaşım).
+- `Api` ve `ValidationWorker` projeleri oluşturuldu (`dotnet new webapi` / `worker`),
+  `ServiceDefaults`/`Contracts`/`Domain`/`Infrastructure`'a referans verildi.
+  `AppHost.cs` güncellendi: her iki proje `AddProject` ile eklendi, `regulationDb`
+  ve `rabbitmq`'ya `WithReference`/`WaitFor` bağlandı.
+- `ICurrentTenantAccessor` arayüzü (`Infrastructure`) eklendi; `RegulationDbContext`
+  artık `Guid` yerine bu arayüzü alıyor. Api'de `HttpTenantAccessor` (X-Tenant-Id
+  header'ından okuyor), Worker'da `MessageTenantAccessor` (mutable, consumer
+  mesajın TenantId'sini buraya yazıyor) implementasyonları yazıldı.
+- `Api/Program.cs`: `POST /products` endpoint'i — `Product` oluştur, `db.Products.Add`,
+  `SaveChangesAsync`, `publishEndpoint.Publish(new ProductSubmitted(...))`,
+  `Results.Accepted(...)` dön. Ayrıca uygulama başlarken bekleyen migration'ları
+  otomatik uygulayan bir blok eklendi (`RegulationDbContext.Database.MigrateAsync()`,
+  sabit/boş bir `StartupTenantAccessor` ile — migration'lar tenant'tan bağımsız
+  şema işlemleri).
+- `ValidationWorker/ProductSubmittedConsumer.cs`: mesajı alıp `MessageTenantAccessor`'ı
+  doldur → `_db.Products`'tan ürünü bul → sahte/sabit sonuç (`IsCompliant = true`)
+  üret → `ProductValidation` oluştur, `_db.ProductValidations.Add` → `SaveChangesAsync`
+  → `context.Publish(new ProductValidated(...))`.
+- **Uçtan uca doğrulandı**: AppHost + Docker ile tüm sistem çalıştırıldı, `curl`
+  ile `POST /products` çağrıldı → `202 Accepted` → Postgres'e doğrudan bağlanıp
+  (`docker exec ... psql`) kontrol edildi: `Product.Status = Approved (1)`,
+  `ProductValidations` tablosunda `IsCompliant = true`, `Reasoning = "Sahte
+  doğrulama sonucu: her zaman uyumlu"` satırı gerçekten oluşmuş.
+- Karşılaşılan ve çözülen hatalar (bu gün en çok altyapı/paket sorunuyla geçti):
+  1. Yanlış dizinden çalıştırılan `dotnet new`/`dotnet add reference` komutları
+     yüzünden `Contracts` projesi `Infrastructure/src/...` altına gömülü oluştu —
+     doğru yere taşındı, kalıntı klasör (`Infrastructure/src`) derlemede tuhaf
+     "duplicate assembly attribute" (CS0579) hatalarına yol açtı, silinince düzeldi.
+  2. `record ProductSubmitted` dosyasının içeriği yanlışlıkla `ProductValidated`
+     koduyla ezilmişti (kopyala-yapıştır hatası) — iki dosya da aynı tip'i
+     tanımlıyordu, düzeltildi.
+  3. Minimal API'de top-level statement sıralaması: `app.MapPost(...)`,
+     `var app = builder.Build();`'dan ÖNCE yazılmıştı (derleme hatası);
+     ve bir `record` tanımı, çalıştırılabilir satırlardan önce kalmıştı
+     (CS8803) — ikisi de doğru sıraya alındı.
+  4. EF Core paket sürüm çakışması (`Microsoft.EntityFrameworkCore` 10.0.11 vs
+     10.0.12, farklı paketler farklı sürüm istiyordu) → CPM'in
+     `CentralPackageTransitivePinningEnabled` özelliği açılıp merkezi sürümler
+     (`Microsoft.EntityFrameworkCore`, `.Relational`) eklendi.
+  5. `MassTransit` 9.2.1 çalışma zamanında lisans anahtarı istedi
+     (`ConfigurationException: License must be specified`) — ücretsiz/açık kaynak
+     `8.1.3` sürümüne sabitlendi.
+  6. `MassTransit.RabbitMQ` 8.1.3, `RabbitMQ.Client`'ın eski (6.x) API şekline
+     bağımlı; ama `Aspire.RabbitMQ.Client` (kullanılmıyordu, kaldırıldı) ve
+     `Aspire.Hosting.RabbitMQ` (AppHost'ta gerekli) `RabbitMQ.Client 7.2.1+`
+     istiyordu → `CentralPackageVersionOverrideEnabled` açılıp merkezi sürüm
+     7.2.1'de bırakıldı, sadece Api/Worker'da `VersionOverride="6.8.1"` ile
+     geçersiz kılındı (AppHost ve Api/Worker ayrı process'ler, farklı sürüm
+     kullanmaları sorun değil).
+  7. Aspire'ın `AddNpgsqlDbContext` yardımcı metodu `RegulationDbContext`'i
+     "pooled" kaydediyor; pooled context'ler Scoped bağımlılık
+     (`ICurrentTenantAccessor`) kabul etmiyor (`Cannot resolve scoped service
+     ... from root provider`) → standart `AddDbContext` + `UseNpgsql`'e geçildi.
+  8. **En önemli mantık hatası**: `RegulationDbContext`, `tenantAccessor.TenantId`'yi
+     constructor'da bir `Guid` alanına KOPYALIYORDU. Ama DI, `RegulationDbContext`'i
+     `ProductSubmittedConsumer`'ın constructor'ında, `Consume()` metodu (ve oradaki
+     `MessageTenantAccessor.TenantId = ...` ataması) çalışmadan ÖNCE oluşturuyor —
+     yani filtre hep boş/varsayılan tenant'a göre çalışıyordu ("Product not found"
+     hatası). Düzeltme: kopya yerine `ICurrentTenantAccessor` referansının kendisi
+     saklandı, filtre `_tenantAccessor.TenantId`'yi her sorguda canlı okuyor.
+  9. Migration hiçbir zaman gerçek Postgres'e uygulanmamıştı (`relation "Products"
+     does not exist`) — Api başlangıcında otomatik `Database.MigrateAsync()`
+     çağrısı eklendi.
+- Zaman baskısı nedeniyle bu gün de (Gün 2'deki gibi) altyapı/wiring kısımları
+  (AppHost güncellemesi, Program.cs'ler, paket/sürüm düzeltmeleri) büyük ölçüde
+  Claude tarafından yazıldı; entity/mesaj tasarım kararları (ProductSubmitted'ın
+  minimal, ProductValidated'ın detaylı olması gibi) soru-cevap yöntemiyle
+  kullanıcı tarafından verildi.
+**Doğrulama sonucu**: Tam uçtan uca test geçti (yukarıda detaylı). MassTransit
+retry/error queue konfigürasyonu (planın "Claude'a gel" notunda geçen) henüz
+elle ayarlanmadı — MassTransit'in varsayılan retry davranışıyla bırakıldı,
+ileride (belki Gün 6/7'de) gözden geçirilebilir.
+**Review notları**: Domain/mesaj tasarımı sağlam. Bu günün asıl öğretici hatası
+#8 (tenant filter closure bug'ı) — "DI constructor'ları ne zaman çalışır"
+konusunun canlı bir örneği oldu. Paket sürüm çakışmalarının çoğu (5, 6, 7) bu
+projeye özel değil, MassTransit + Aspire + EF Core'u aynı anda kullanan her
+projede karşılaşılabilecek genel bilgi — not olarak faydalı.
 
 ---
 

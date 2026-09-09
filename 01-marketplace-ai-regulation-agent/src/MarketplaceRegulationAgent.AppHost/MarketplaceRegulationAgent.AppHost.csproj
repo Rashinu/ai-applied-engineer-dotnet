@@ -14,4 +14,9 @@
     <PackageReference Include="Aspire.Hosting.RabbitMQ" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\MarketplaceRegulationAgent.Api\MarketplaceRegulationAgent.Api.csproj" />
+    <ProjectReference Include="..\MarketplaceRegulationAgent.ValidationWorker\MarketplaceRegulationAgent.ValidationWorker.csproj" />
+  </ItemGroup>
+
 </Project>

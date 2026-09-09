@@ -17,6 +17,11 @@ public class RegulationDbContextFactory : IDesignTimeDbContextFactory<Regulation
         var optionsBuilder = new DbContextOptionsBuilder<RegulationDbContext>();
         optionsBuilder.UseNpgsql("Host=localhost;Database=regulationdb;Username=postgres;Password=postgres");
 
-        return new RegulationDbContext(optionsBuilder.Options, Guid.Empty);
+        return new RegulationDbContext(optionsBuilder.Options, new DesignTimeTenantAccessor());
+    }
+
+    private sealed class DesignTimeTenantAccessor : ICurrentTenantAccessor
+    {
+        public Guid TenantId => Guid.Empty;
     }
 }

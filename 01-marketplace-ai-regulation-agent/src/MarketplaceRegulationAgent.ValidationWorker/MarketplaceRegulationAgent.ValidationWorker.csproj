@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-MarketplaceRegulationAgent.ValidationWorker-bd1d098a-7b2c-46d3-aa82-a6a19b6435cd</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="MassTransit" />
+    <PackageReference Include="MassTransit.RabbitMQ" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="RabbitMQ.Client" VersionOverride="6.8.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MarketplaceRegulationAgent.ServiceDefaults\MarketplaceRegulationAgent.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\MarketplaceRegulationAgent.Contracts\MarketplaceRegulationAgent.Contracts.csproj" />
+    <ProjectReference Include="..\MarketplaceRegulationAgent.Domain\MarketplaceRegulationAgent.Domain.csproj" />
+    <ProjectReference Include="..\MarketplaceRegulationAgent.Infrastructure\MarketplaceRegulationAgent.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

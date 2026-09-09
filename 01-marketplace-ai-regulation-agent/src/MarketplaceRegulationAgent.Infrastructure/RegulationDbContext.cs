@@ -5,12 +5,12 @@ namespace MarketplaceRegulationAgent.Infrastructure;
 
 public class RegulationDbContext : DbContext
 {
-    private readonly Guid _currentTenantId;
+    private readonly ICurrentTenantAccessor _tenantAccessor;
 
-    public RegulationDbContext(DbContextOptions<RegulationDbContext> options, Guid currentTenantId)
+    public RegulationDbContext(DbContextOptions<RegulationDbContext> options, ICurrentTenantAccessor tenantAccessor)
         : base(options)
     {
-        _currentTenantId = currentTenantId;
+        _tenantAccessor = tenantAccessor;
     }
 
     public DbSet<Product> Products { get; set; }
@@ -19,10 +19,15 @@ public class RegulationDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        // Dikkat: _tenantAccessor.TenantId'yi burada bir değişkene KOPYALAMIYORUZ —
+        // filtre her sorgu çalıştığında _tenantAccessor'ın O ANKİ değerini okuyor.
+        // Worker'da Consume() metodu, DbContext oluşturulduktan SONRA
+        // MessageTenantAccessor.TenantId'yi dolduruyor; eğer burada bir kopya
+        // tutsaydık, DbContext hep constructor anındaki (boş) değeri görürdü.
         modelBuilder.Entity<Product>()
-            .HasQueryFilter(p => p.TenantId == _currentTenantId);
+            .HasQueryFilter(p => p.TenantId == _tenantAccessor.TenantId);
 
         modelBuilder.Entity<ProductValidation>()
-            .HasQueryFilter(v => v.TenantId == _currentTenantId);
+            .HasQueryFilter(v => v.TenantId == _tenantAccessor.TenantId);
     }
 }

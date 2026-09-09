@@ -34,7 +34,17 @@ cd src/MarketplaceRegulationAgent.AppHost
 dotnet run
 ```
 
-Konsolda çıkan Aspire dashboard linkine git. Şu an ayakta olanlar: `postgres`
-(pgvector destekli), `regulationdb` (postgres içindeki veritabanı), `rabbitmq`
-(management arayüzü açık). Api ve ValidationWorker projeleri henüz eklenmedi
-(bkz. [PROGRESS.md](./PROGRESS.md)).
+Konsolda çıkan Aspire dashboard linkine git. Ayakta olanlar: `postgres`
+(pgvector destekli), `regulationdb`, `rabbitmq`, `api`, `validation-worker`.
+
+Bir ürün göndermek için (asenkron akış: Api → RabbitMQ → Worker → Postgres):
+
+```bash
+curl -X POST http://localhost:<api-portu>/products \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111" \
+  -d '{"name":"iPhone 15 Pro Max","category":"Electronics/Phones","price":2500,"quantity":10}'
+```
+
+Şu an validasyon **sahte/sabit** (her ürün otomatik onaylanıyor) — gerçek AI
+entegrasyonu Gün 6'da gelecek (bkz. [PROGRESS.md](./PROGRESS.md)).

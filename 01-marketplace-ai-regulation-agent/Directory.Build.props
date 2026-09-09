@@ -5,6 +5,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- Directory.Packages.props'taki PackageVersion'ların dolaylı (transitive)
+         bağımlılıkları da sabitlemesini sağlar; farklı paketlerin aynı dolaylı
+         bağımlılığın farklı sürümlerini istemesinden kaynaklanan çakışmaları önler. -->
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <!-- Bazı projelerin (Api, Worker) belirli bir paket için merkezi sürümü
+         VersionOverride ile geçersiz kılmasına izin verir — AppHost ve
+         Api/Worker'ın RabbitMQ.Client için farklı sürümlere ihtiyacı var,
+         ayrı process'ler oldukları için bu sorun değil. -->
+    <CentralPackageVersionOverrideEnabled>true</CentralPackageVersionOverrideEnabled>
   </PropertyGroup>
 
 </Project>

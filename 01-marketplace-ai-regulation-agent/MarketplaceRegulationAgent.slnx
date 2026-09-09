@@ -1,6 +1,9 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/MarketplaceRegulationAgent.Api/MarketplaceRegulationAgent.Api.csproj" />
     <Project Path="src/MarketplaceRegulationAgent.AppHost/MarketplaceRegulationAgent.AppHost.csproj" />
+    <Project Path="src/MarketplaceRegulationAgent.Contracts/MarketplaceRegulationAgent.Contracts.csproj" />
     <Project Path="src/MarketplaceRegulationAgent.ServiceDefaults/MarketplaceRegulationAgent.ServiceDefaults.csproj" />
+    <Project Path="src/MarketplaceRegulationAgent.ValidationWorker/MarketplaceRegulationAgent.ValidationWorker.csproj" />
   </Folder>
 </Solution>

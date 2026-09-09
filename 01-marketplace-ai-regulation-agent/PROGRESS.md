@@ -12,7 +12,7 @@ beklenen ve istenen bir şey, amaç hız değil düzenli ilerleme.
 | Gün | Tarih | Hafta günü / blok |
 |-----|-------|--------------------|
 | 1 | 2026-09-06 | Pazar 19:30-21:00 |
-| 2 | | |
+| 2 | 2026-09-09 | Çarşamba (plan dışı ek oturum — normalde İş Yeri Projesi bloğu) |
 | 3 | | |
 | 4 | | |
 | 5 | | |
@@ -185,11 +185,63 @@ düzeltilebilir (kozmetik, bloklayıcı değil).
 - **Claude'a gel**: Entity + DbContext + migration dosyalarını review ettir,
   özellikle query filter + TenantId izolasyonu doğru mu diye.
 
-**Durum**: ⬜ Başlanmadı
+**Durum**: ✅ Review edildi (2026-09-09)
 **Yapılanlar**:
--
-**Doğrulama sonucu**:
-**Review notları**:
+- `Domain` projesinde `ProductStatus` (enum: Pending/Approved/Rejected), `Product`
+  (Id, TenantId, Name, Price, Category, Quantity, Status, CreatedAt — hepsi Guid/
+  string/decimal/int/DateTime, `enum` ile `class` farkı ve neden `Guid` (int değil)
+  kullanıldığı tartışılarak), `Tenant` (Id, ShopName, Email, CreatedAt), `ProductValidation`
+  (Id, ProductId, TenantId, IsCompliant, CategoryMismatch, PriceAnomalyScore,
+  Reasoning, Violations: List<string>, ValidatedAt) yazıldı.
+- `Infrastructure` projesine `Npgsql.EntityFrameworkCore.PostgreSQL`,
+  `Microsoft.EntityFrameworkCore.Design`, `Pgvector`, `Pgvector.EntityFrameworkCore`
+  paketleri eklendi; `Domain`'e `ProjectReference` verildi.
+- `RegulationDbContext` yazıldı: `DbSet<Product> Products`, `DbSet<ProductValidation>
+  ProductValidations`, `DbSet<Tenant> Tenants`, constructor'da `Guid currentTenantId`
+  alıp `OnModelCreating`'de `Product`/`ProductValidation` üzerinde
+  `HasQueryFilter(x => x.TenantId == _currentTenantId)` ile global tenant izolasyonu.
+- `RegulationDbContextFactory : IDesignTimeDbContextFactory<RegulationDbContext>`
+  eklendi — `dotnet ef migrations add` gibi tasarım-zamanı komutların, runtime'da
+  DI'dan gelecek `currentTenantId`'yi bilmeden de context oluşturabilmesi için
+  (sahte `Guid.Empty` + placeholder connection string ile).
+- `dotnet ef migrations add InitialCreate` çalıştırıldı → `Products`,
+  `ProductValidations`, `Tenants` tabloları üretildi (migration dosyası incelendi,
+  doğru). `CREATE EXTENSION vector` bilinçli olarak bu migration'a eklenmedi —
+  henüz `Embedding` (pgvector) alanı yok, o Gün 4'te ayrı migration'la gelecek.
+- Karşılaşılan ve çözülen hatalar:
+  1. Boş klasörler (`Domain`/`Infrastructure`) yanlış isimle (`Regualtion` yazım
+     hatası) ve `dotnet new` yerine elle oluşturulmuştu — silinip `dotnet new classlib`
+     ile doğru isimle yeniden oluşturuldu.
+  2. `dotnet new classlib` kök klasörden çalıştırılınca projeler yanlış yere
+     (`AI Applied Engineer - .NET/src/...` yerine `.../01-marketplace-ai-regulation-agent/src/...`)
+     oluştu — dosyalar doğru yere taşındı, kalıntı `bin/obj` kilitleri temizlendi.
+  3. `class Product` yerine `enum Product` yazılmıştı (enum = sabit değer listesi,
+     class = veri taşıyan nesne farkı konuşuldu); property syntax hataları
+     (`{get; set;};` fazladan `;`, Türkçe `ı` karakteri, `dateTime`/`guid` küçük
+     harf tip adları) tek tek düzeltildi.
+  4. `ProductValidation : Product` (kalıtım) yazılmıştı — kavramsal hata: bir
+     validation kaydı bir ürünün "türü" değil, ona sadece `ProductId` ile referans
+     verir (association, inheritance değil). Kaldırıldı.
+  5. `RegulationDbContext.cs`'te `DbSet` property'leri yanlışlıkla constructor'ın
+     gövdesi içine yazılmıştı (bir metodun içine property tanımlanamaz); sonra
+     `OnModelCreating` da aynı şekilde eski constructor'ın içine gömülmüştü —
+     dosya class-seviyesinde tek constructor + class-seviyesinde `DbSet`'ler +
+     class-seviyesinde `OnModelCreating` olacak şekilde yeniden düzenlendi.
+  6. `dotnet ef migrations add`, constructor'daki `Guid currentTenantId`
+     parametresini dolduramadığı için "Unable to resolve service" hatası verdi —
+     `IDesignTimeDbContextFactory` eklenerek çözüldü (yukarıda açıklandı).
+- Zaman baskısı nedeniyle bu gün, entity'lerin ilk yazımı sen tarafından (soru-cevap
+  yöntemiyle), `RegulationDbContext`'in ilk taslağı ve migration/factory düzeltmeleri
+  ise doğrudan Claude tarafından yapıldı (normalde review-only rolün dışına çıkıldı,
+  bilinçli bir istisna).
+**Doğrulama sonucu**: `dotnet build` (Domain + Infrastructure) 0 hata/0 uyarı ile
+geçti. `dotnet ef migrations add InitialCreate` başarıyla 3 tablo üretti. Migration'ın
+gerçek Aspire-Postgres'e uygulanması (`dotnet ef database update`), Docker bu ortamda
+o an kapalı olduğu için Gün 3'e (Api/Worker ilk çalıştığında) bırakıldı.
+**Review notları**: Domain modelleme süreci iyi geçti (enum/class, kalıtım/ilişki,
+string/List, Guid/int ayrımları kavrandı). EF Core/DbContext kısmı zaman baskısıyla
+hızlandırıldı — bu kısmın (`OnModelCreating`, design-time factory) mantığını daha
+sakin bir oturumda tekrar okuyup kendi kelimelerinle özetlemek faydalı olur.
 
 ---
 

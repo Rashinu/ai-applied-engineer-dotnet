@@ -9,9 +9,10 @@ builder.AddServiceDefaults();
 
 builder.Services.AddScoped<MessageTenantAccessor>();
 builder.Services.AddScoped<ICurrentTenantAccessor>(sp => sp.GetRequiredService<MessageTenantAccessor>());
+builder.Services.AddSingleton<IProductEmbeddingGenerator, FakeEmbeddingGenerator>();
 
 builder.Services.AddDbContext<RegulationDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("regulationdb")));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("regulationdb"), o => o.UseVector()));
 
 builder.Services.AddMassTransit(x =>
 {

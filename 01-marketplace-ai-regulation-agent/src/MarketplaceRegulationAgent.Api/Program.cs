@@ -19,7 +19,7 @@ builder.Services.AddScoped<ICurrentTenantAccessor, HttpTenantAccessor>();
 // Scoped bağımlılık (ICurrentTenantAccessor) kabul etmez; her istekte doğru tenant'ı
 // almamız gerektiği için pooling'i devre dışı bırakıp standart AddDbContext kullanıyoruz.)
 builder.Services.AddDbContext<RegulationDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("regulationdb")));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("regulationdb"), o => o.UseVector()));
 
 // RabbitMQ + MassTransit — Aspire'ın "rabbitmq" bağlantı string'ini kullanır.
 builder.Services.AddMassTransit(x =>
@@ -43,7 +43,7 @@ using (var migrationScope = app.Services.CreateScope())
 {
     var configuration = migrationScope.ServiceProvider.GetRequiredService<IConfiguration>();
     var optionsBuilder = new DbContextOptionsBuilder<RegulationDbContext>();
-    optionsBuilder.UseNpgsql(configuration.GetConnectionString("regulationdb"));
+    optionsBuilder.UseNpgsql(configuration.GetConnectionString("regulationdb"), o => o.UseVector());
     using var migrationDb = new RegulationDbContext(optionsBuilder.Options, new StartupTenantAccessor());
     await migrationDb.Database.MigrateAsync();
 }

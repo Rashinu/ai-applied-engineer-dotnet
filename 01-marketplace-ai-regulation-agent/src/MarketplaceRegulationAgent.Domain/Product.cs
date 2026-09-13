@@ -14,4 +14,7 @@ namespace MarketplaceRegulationAgent.Domain;
 
     public DateTime CreatedAt {get; set;}
     public int Quantity {get; set;}
+
+    public Pgvector.Vector? Embedding { get; set; }
+
     }

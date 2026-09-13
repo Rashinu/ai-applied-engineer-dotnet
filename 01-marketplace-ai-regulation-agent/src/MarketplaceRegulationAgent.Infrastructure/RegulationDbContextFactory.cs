@@ -15,7 +15,11 @@ public class RegulationDbContextFactory : IDesignTimeDbContextFactory<Regulation
     public RegulationDbContext CreateDbContext(string[] args)
     {
         var optionsBuilder = new DbContextOptionsBuilder<RegulationDbContext>();
-        optionsBuilder.UseNpgsql("Host=localhost;Database=regulationdb;Username=postgres;Password=postgres");
+        // .UseVector(): Npgsql'e "vector" Postgres tipini (Pgvector.Vector CLR
+        // tipiyle eşleştirerek) tanıt — bu olmadan pgvector kolonları eşlenemez.
+        optionsBuilder.UseNpgsql(
+            "Host=localhost;Database=regulationdb;Username=postgres;Password=postgres",
+            o => o.UseVector());
 
         return new RegulationDbContext(optionsBuilder.Options, new DesignTimeTenantAccessor());
     }

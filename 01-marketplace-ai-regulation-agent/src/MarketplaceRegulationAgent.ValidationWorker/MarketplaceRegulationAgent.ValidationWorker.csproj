@@ -12,6 +12,7 @@
     <PackageReference Include="MassTransit" />
     <PackageReference Include="MassTransit.RabbitMQ" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Pgvector.EntityFrameworkCore" />
     <PackageReference Include="RabbitMQ.Client" VersionOverride="6.8.1" />
   </ItemGroup>
 

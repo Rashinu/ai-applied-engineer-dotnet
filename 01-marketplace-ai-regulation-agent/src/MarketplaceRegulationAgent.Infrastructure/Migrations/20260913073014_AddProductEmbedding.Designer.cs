@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using MarketplaceRegulationAgent.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Pgvector;
@@ -13,9 +14,11 @@ using Pgvector;
 namespace MarketplaceRegulationAgent.Infrastructure.Migrations
 {
     [DbContext(typeof(RegulationDbContext))]
-    partial class RegulationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260913073014_AddProductEmbedding")]
+    partial class AddProductEmbedding
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

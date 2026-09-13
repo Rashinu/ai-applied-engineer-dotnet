@@ -3,6 +3,7 @@ using MarketplaceRegulationAgent.Domain;
 using MarketplaceRegulationAgent.Infrastructure;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using Pgvector.EntityFrameworkCore;
 
 namespace MarketplaceRegulationAgent.ValidationWorker;
 
@@ -10,11 +11,13 @@ public class ProductSubmittedConsumer : IConsumer<ProductSubmitted>
 {
     private readonly RegulationDbContext _db;
     private readonly MessageTenantAccessor _tenantAccessor;
+    private readonly IProductEmbeddingGenerator _embeddingGenerator;
 
-    public ProductSubmittedConsumer(RegulationDbContext db, MessageTenantAccessor tenantAccessor)
+    public ProductSubmittedConsumer(RegulationDbContext db, MessageTenantAccessor tenantAccessor, IProductEmbeddingGenerator embeddingGenerator)
     {
         _db = db;
         _tenantAccessor = tenantAccessor;
+        _embeddingGenerator = embeddingGenerator;
     }
 
     public async Task Consume(ConsumeContext<ProductSubmitted> context)
@@ -29,6 +32,20 @@ public class ProductSubmittedConsumer : IConsumer<ProductSubmitted>
             // Ürün bulunamazsa, bir hata fırlatabilir veya loglayabilirsiniz
             throw new Exception($"Product with ID {context.Message.ProductId} not found.");
         }
+        product.Embedding = await _embeddingGenerator.GenerateEmbeddingAsync($"Product {product.Name}: {product.Category}");
+        
+
+        var similarRejectedProducts = await _db.Products
+            .Where(p => p.Status == ProductStatus.Rejected && p.Embedding != null)
+            .OrderBy(p=>p.Embedding!.L2Distance(product.Embedding!))
+            .Take(5)
+            .Select(p => p.Name)
+            .ToListAsync(); // Bu örnek, benzerlik kontrolü için basit bir sıralama kullanır. Gerçek uygulamada daha karmaşık bir benzerlik algoritması kullanılabilir.
+            
+    var reasoningText = similarRejectedProducts.Count > 0
+    ? $"Sahte doğrulama sonucu: her zaman uyumlu. Benzer reddedilmiş ürünler: {string.Join(", ", similarRejectedProducts)}"
+    : "Sahte doğrulama sonucu: her zaman uyumlu. Benzer reddedilmiş ürün bulunamadı.";
+
         // TODO: 3. Şimdilik SAHTE bir sonuç üret (her zaman IsCompliant = true)
         var isCompliant = true;
         // TODO: 4. Yeni bir ProductValidation nesnesi oluştur, _db.ProductValidations'a ekle
@@ -39,7 +56,7 @@ public class ProductSubmittedConsumer : IConsumer<ProductSubmitted>
             IsCompliant = isCompliant,
             CategoryMismatch = false,
             PriceAnomalyScore = 0.0,
-            Reasoning = "Sahte doğrulama sonucu: her zaman uyumlu",
+            Reasoning = reasoningText,
             ValidatedAt = DateTime.UtcNow
         };
         // TODO: 5. product.Status'ü ProductStatus.Approved yap
@@ -54,7 +71,7 @@ public class ProductSubmittedConsumer : IConsumer<ProductSubmitted>
             isCompliant,
             false,
             0.0,
-            "Sahte doğrulama sonucu: her zaman uyumlu",
+            reasoningText,
             new List<string>()
         ));
     }

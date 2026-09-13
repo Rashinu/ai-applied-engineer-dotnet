@@ -29,5 +29,11 @@ public class RegulationDbContext : DbContext
 
         modelBuilder.Entity<ProductValidation>()
             .HasQueryFilter(v => v.TenantId == _tenantAccessor.TenantId);
+
+        modelBuilder.Entity<Product>()
+            .Property(p => p.Embedding)
+            .HasColumnType("vector(768)");
+
+        modelBuilder.HasPostgresExtension("vector");
     }
 }

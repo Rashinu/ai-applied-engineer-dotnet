@@ -9,7 +9,10 @@ builder.AddServiceDefaults();
 
 builder.Services.AddScoped<MessageTenantAccessor>();
 builder.Services.AddScoped<ICurrentTenantAccessor>(sp => sp.GetRequiredService<MessageTenantAccessor>());
-builder.Services.AddSingleton<IProductEmbeddingGenerator, FakeEmbeddingGenerator>();
+// Ollama'nın "embeddings" bağlantısına (Aspire'ın enjekte ettiği) bağlanıp
+// IEmbeddingGenerator<string, Embedding<float>>'i DI'a kaydeder.
+builder.AddOllamaApiClient("embeddings").AddEmbeddingGenerator();
+builder.Services.AddSingleton<IProductEmbeddingGenerator, RealEmbeddingGenerator>();
 
 builder.Services.AddDbContext<RegulationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("regulationdb"), o => o.UseVector()));

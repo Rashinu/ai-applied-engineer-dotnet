@@ -15,7 +15,7 @@ beklenen ve istenen bir şey, amaç hız değil düzenli ilerleme.
 | 2 | 2026-09-09 | Çarşamba (plan dışı ek oturum — normalde İş Yeri Projesi bloğu) |
 | 3 | 2026-09-09 | Çarşamba (Gün 2 ile aynı oturumda devam edildi) |
 | 4 | 2026-09-13 | Pazar 19:30-21:00 |
-| 5 | | |
+| 5 | 2026-09-13 | Pazar (Gün 4 ile aynı oturumda devam edildi) |
 | 6 | | |
 | 7 | | |
 
@@ -443,11 +443,62 @@ trade-off'lar, kör bir kural takibinden daha olgun bir mühendislik duruşu.
 - **Claude'a gel**: AppHost'taki Ollama wiring'i ve model-pull stratejisini
   review ettir (bu adım riskli, muhtemelen birlikte debug edeceğiz).
 
-**Durum**: ⬜ Başlanmadı
+**Durum**: ✅ Review edildi (2026-09-13)
 **Yapılanlar**:
--
-**Doğrulama sonucu**:
-**Review notları**:
+- Zaman baskısı nedeniyle model `llama3.1:8b` yerine `llama3.2:3b`'ye
+  düşürüldü (kullanıcıyla onaylanan bir karar) — daha küçük indirme (~2GB),
+  daha hızlı yanıt.
+- `Aspire.Hosting.Ollama` diye resmi bir paket yok; onun yerine topluluk
+  paketi `CommunityToolkit.Aspire.Hosting.Ollama` (13.5.0, Aspire 13.5.x ile
+  uyumlu) kullanıldı. Metod isimlerini tahmin etmek yerine (geçen seferki
+  `L2Distance` hatasından ders alınarak) paket, geçici bir konsol projesiyle
+  reflection kullanılarak incelendi — gerçek API: `builder.AddOllama(name)`,
+  `.AddModel(name, modelName)`, `.WithDataVolume()`.
+- `AppHost.cs`: `ollama` resource'u + iki model (`chat` → llama3.2:3b,
+  `embeddings` → nomic-embed-text), `validation-worker`'a `WithReference`/
+  `WaitFor` ile bağlandı.
+- Client tarafı için `CommunityToolkit.Aspire.OllamaSharp` paketi (yine
+  reflection ile API'si doğrulandı) — `Microsoft.Extensions.AI`'ın
+  `IEmbeddingGenerator<string, Embedding<float>>` soyutlamasını Ollama'ya
+  bağlıyor: `builder.AddOllamaApiClient("embeddings").AddEmbeddingGenerator()`.
+- `RealEmbeddingGenerator : IProductEmbeddingGenerator` (Infrastructure) —
+  `FakeEmbeddingGenerator`'ın (Gün 4) yerini aldı, `IEmbeddingGenerator`'ı
+  sarıp `GenerateVectorAsync` çağırıyor, sonucu `Pgvector.Vector`'a çeviriyor.
+  `ProductSubmittedConsumer` hiç değişmedi — arayüz aynı kaldığı için (Gün
+  4'te tasarlanan `IProductEmbeddingGenerator` soyutlamasının tam faydası
+  burada görüldü).
+- Worker DI kaydı `FakeEmbeddingGenerator` → `RealEmbeddingGenerator` olarak
+  değiştirildi.
+- **Uçtan uca doğrulandı**: AppHost çalıştırıldı, Ollama image + iki model
+  indi (`docker exec ... ollama list` ile doğrulandı: `llama3.2:3b` 2.0GB,
+  `nomic-embed-text` 274MB), tüm 8 resource (ollama, chat, embeddings,
+  postgres, regulationdb, rabbitmq, api, validation-worker) yeşil. Bir ürün
+  gönderildi, worker'ın gerçekten Ollama'ya embedding isteği attığı ve
+  sonucu `vector(768)` kolonuna yazdığı doğrulandı (kolon tipi sabit
+  olduğu için boyut uyuşmasaydı INSERT hata verirdi — vermedi).
+- Karşılaşılan ve çözülen hatalar:
+  1. **Docker Desktop WSL2 DNS arızası**: `ollama` image'ı ilk denemede
+     "lookup auth.docker.io: no such host" hatasıyla inemedi — host
+     makinenin DNS'i çalışıyordu ama Docker Desktop'ın WSL2 sanal makinesi
+     çözemiyordu. `wsl --shutdown` (WSL2 ağ yığınını sıfırlar) + Docker
+     Desktop'ı yeniden başlatmakla çözüldü. Bununla ilgili container hiç
+     oluşmadan "kayboluyordu" gibi görünen kafa karıştırıcı bir ara durum
+     da yaşandı (image pull yarıda kesilince container hiç create edilmemiş
+     oluyor, `docker ps -a`'da bile görünmüyor).
+  2. `IEmbeddingGenerator<string, Embedding<float>>` ve `GenerateVectorAsync`
+     imzaları `Microsoft.Extensions.AI` sürümleri arasında değişebildiği
+     için (bilinen risk #5, PROGRESS.md'nin başında), yine reflection ile
+     gerçek API doğrulandı, tahmin edilmedi.
+- Bu gün, altyapı kısmı (paket keşfi + AppHost/DI wiring) yine büyük ölçüde
+  Claude tarafından yapıldı — plandaki "Gün 5 riskli, Claude daha aktif
+  yardımcı olur" notuyla tutarlı, bilinçli bir istisna.
+**Doğrulama sonucu**: Yukarıda detaylı — 8/8 resource yeşil, gerçek embedding
+üretimi uçtan uca çalışıyor.
+**Review notları**: `IProductEmbeddingGenerator` arayüzünü Gün 4'te doğru
+tasarlamış olmamızın faydası tam burada ortaya çıktı — sahteyi gerçekle
+değiştirmek tek bir DI satırı + yeni bir implementasyon dosyasıydı,
+`ProductSubmittedConsumer`'a hiç dokunulmadı. Bu, "arayüz arkasında
+programlama" prensibinin somut, kanıtlanmış bir faydası.
 
 ---
 

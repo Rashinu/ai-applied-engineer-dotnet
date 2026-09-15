@@ -4,7 +4,7 @@ using MarketplaceRegulationAgent.Infrastructure;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Pgvector.EntityFrameworkCore;
-
+using Microsoft.Extensions.AI;
 namespace MarketplaceRegulationAgent.ValidationWorker;
 
 public class ProductSubmittedConsumer : IConsumer<ProductSubmitted>
@@ -13,11 +13,14 @@ public class ProductSubmittedConsumer : IConsumer<ProductSubmitted>
     private readonly MessageTenantAccessor _tenantAccessor;
     private readonly IProductEmbeddingGenerator _embeddingGenerator;
 
-    public ProductSubmittedConsumer(RegulationDbContext db, MessageTenantAccessor tenantAccessor, IProductEmbeddingGenerator embeddingGenerator)
+    private readonly  IChatClient _chatClient;
+
+    public ProductSubmittedConsumer(RegulationDbContext db, MessageTenantAccessor tenantAccessor, IProductEmbeddingGenerator embeddingGenerator, IChatClient chatClient)
     {
         _db = db;
         _tenantAccessor = tenantAccessor;
         _embeddingGenerator = embeddingGenerator;
+        _chatClient = chatClient;
     }
 
     public async Task Consume(ConsumeContext<ProductSubmitted> context)
@@ -42,37 +45,36 @@ public class ProductSubmittedConsumer : IConsumer<ProductSubmitted>
             .Select(p => p.Name)
             .ToListAsync(); // Bu örnek, benzerlik kontrolü için basit bir sıralama kullanır. Gerçek uygulamada daha karmaşık bir benzerlik algoritması kullanılabilir.
             
-    var reasoningText = similarRejectedProducts.Count > 0
-    ? $"Sahte doğrulama sonucu: her zaman uyumlu. Benzer reddedilmiş ürünler: {string.Join(", ", similarRejectedProducts)}"
-    : "Sahte doğrulama sonucu: her zaman uyumlu. Benzer reddedilmiş ürün bulunamadı.";
+        var prompt = ProductValidationPromptBuilder.Build(product.Name, product.Category, product.Price, similarRejectedProducts);
 
-        // TODO: 3. Şimdilik SAHTE bir sonuç üret (her zaman IsCompliant = true)
-        var isCompliant = true;
-        // TODO: 4. Yeni bir ProductValidation nesnesi oluştur, _db.ProductValidations'a ekle
-        var validaiton = new ProductValidation
-        {
-            ProductId = context.Message.ProductId,
-            TenantId = context.Message.TenantId,
-            IsCompliant = isCompliant,
-            CategoryMismatch = false,
-            PriceAnomalyScore = 0.0,
-            Reasoning = reasoningText,
-            ValidatedAt = DateTime.UtcNow
-        };
-        // TODO: 5. product.Status'ü ProductStatus.Approved yap
-        product.Status = ProductStatus.Approved;
+        var aiResponse = await _chatClient.GetResponseAsync<ProductValidationResult>(prompt);
+        var result = aiResponse.Result;
+var validation = new ProductValidation
+{
+    ProductId = context.Message.ProductId,
+    TenantId = context.Message.TenantId,
+    IsCompliant = result.IsCompliant,
+    CategoryMismatch = result.CategoryMismatch,
+    PriceAnomalyScore = result.PriceAnomalyScore,
+    Reasoning = result.Reasoning,
+    Violations = result.Violations,
+    ValidatedAt = DateTime.UtcNow
+};
+
+product.Status = result.IsCompliant ? ProductStatus.Approved : ProductStatus.Rejected;
+
         // TODO: 6. _db.SaveChangesAsync() çağır
-        _db.ProductValidations.Add(validaiton);
+        _db.ProductValidations.Add(validation);
         await _db.SaveChangesAsync();
         // TODO: 7. context.Publish ile bir ProductValidated mesajı yayınla
         await context.Publish(new ProductValidated(
             context.Message.ProductId,
             context.Message.TenantId,
-            isCompliant,
-            false,
-            0.0,
-            reasoningText,
-            new List<string>()
+            result.IsCompliant,
+            result.CategoryMismatch,
+            result.PriceAnomalyScore,
+            result.Reasoning,
+            result.Violations
         ));
     }
 }

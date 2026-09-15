@@ -16,7 +16,7 @@ beklenen ve istenen bir şey, amaç hız değil düzenli ilerleme.
 | 3 | 2026-09-09 | Çarşamba (Gün 2 ile aynı oturumda devam edildi) |
 | 4 | 2026-09-13 | Pazar 19:30-21:00 |
 | 5 | 2026-09-13 | Pazar (Gün 4 ile aynı oturumda devam edildi) |
-| 6 | | |
+| 6 | 2026-09-15 | Salı (plan dışı ek oturum) |
 | 7 | | |
 
 ---
@@ -516,11 +516,61 @@ programlama" prensibinin somut, kanıtlanmış bir faydası.
 - **Claude'a gel**: Prompt tasarımını ve typed output mapping'ini review ettir;
   bozuk JSON / şema uyuşmazlığı çıkarsa birlikte debug edelim.
 
-**Durum**: ⬜ Başlanmadı
+**Durum**: ✅ Review edildi (2026-09-15)
 **Yapılanlar**:
--
-**Doğrulama sonucu**:
-**Review notları**:
+- `ProductValidationResult` (Contracts): `IsCompliant`, `Violations`, `CategoryMismatch`,
+  `PriceAnomalyScore`, `Reasoning` — AI'ın üreteceği tipli sonuç şeması. Bilinçli
+  olarak `ProductValidation` (DB entity) ile aynı değil: kimlik/zaman bilgisi
+  yok, AI'ın bunları "uydurmasını" istemiyoruz.
+- `IChatClient` Worker'a kaydedildi (`builder.AddOllamaApiClient("chat").AddChatClient()`).
+- `ProductValidationPromptBuilder` (raw string literal ile çok satırlı prompt) —
+  ürün bilgisi + Gün 4'teki benzer reddedilmiş ürünler + 3 kriter (yasal/kategori/fiyat).
+- `ProductSubmittedConsumer` güncellendi: stub (`isCompliant = true`) tamamen
+  kaldırıldı, yerine `_chatClient.GetResponseAsync<ProductValidationResult>(prompt)`
+  → `result.IsCompliant`'e göre `Product.Status` (Approved/Rejected) belirleniyor.
+- API doğrulaması, plan dosyasında `GetResponseAsync<T>` için tahmin edilmişti
+  (risk #4) — reflection ile doğrulandı: `ChatClientStructuredOutputExtensions.
+  GetResponseAsync<T>(...)` → `Task<ChatResponse<T>>`, `.Result` ile tipli nesne.
+- **Gerçek, kritik bir altyapı sorunu bulundu ve çözüldü**: `Microsoft.Extensions.
+  Http.Resilience`'ın varsayılan 10 saniyelik HTTP zaman aşımı, `llama3.2:3b`'nin
+  CPU'da typed/şema-kısıtlamalı JSON üretmesi için (~120 saniyeye kadar sürebiliyor)
+  çok kısaydı. Önce tek bir HttpClient'a özel `Configure<HttpStandardResilienceOptions>
+  (clientName, ...)` ile düzeltmeye çalışıldı — **işe yaramadı** (muhtemelen yanlış
+  named-options anahtarı). Sonra `ServiceDefaults/Extensions.cs`'teki genel
+  `AddStandardResilienceHandler()` çağrısına doğrudan `AttemptTimeout=90sn,
+  TotalRequestTimeout=120sn, CircuitBreaker.SamplingDuration=180sn` (Api'yi
+  etkilemez çünkü Api'nin böyle yavaş bir dış çağrısı yok) eklenerek **kesin
+  şekilde** çözüldü.
+- Teşhis için: Aspire'ın yönettiği worker süreci durdurulup, aynı Worker
+  **elle**, Aspire'ın container'larından çıkarılan gerçek bağlantı bilgileriyle
+  (`docker port`, `docker exec ... printenv`) terminalde doğrudan çalıştırıldı
+  — böylece worker'ın konsol çıktısı (normalde sadece OTLP ile dashboard'a giden,
+  tarayıcı aracı o an bağlanamadığı için erişilemeyen loglar) doğrudan görülebildi.
+  Ayrıca hatalı mesajı yeniden işletmek için `rabbitmqadmin publish` ile
+  RabbitMQ'nun error queue'suna düşen mesaj elle ana kuyruğa geri gönderildi.
+- **Uçtan uca doğrulandı (gerçek AI karar verdi)**: "Silah Kilifi" (weapon
+  holster) adlı bir test ürünü gönderildi. Model, 2. denemede (~119 saniyede,
+  ilk deneme 90sn'de zaman aşımına uğradı) doğru şekilde `IsCompliant: false`,
+  `CategoryMismatch: true` döndürdü ve `Reasoning`'de "silahlardan oluştuğu için
+  yasaklı içerik barındırmaktadır" diye **gerçekten anlamlı bir gerekçe** üretti.
+  `Product.Status` veritabanında `Rejected (2)` olarak güncellendi — stub değil,
+  gerçek model kararı sistemi yönetiyor.
+- Bilinen, bloklamayan eksikler (Gün 7'ye not): `PriceAnomalyScore` modelin
+  kendi ürettiği bir sayı (5), 0-1 aralığına normalize edilmemiş — prompt'a
+  "0.0-1.0 arası bir sayı" talimatı eklenmeli. `Violations` listesi boş kaldı,
+  model bulguları `Reasoning`'e yazdı — prompt'a "her ihlali Violations
+  listesine ayrı ayrı ekle" talimatı eklenmeli.
+**Doğrulama sonucu**: Yukarıda detaylı — gerçek model çağrısı, gerçek karar,
+gerçek DB güncellemesi doğrulandı. Performans notu: yerel CPU'da typed/şema
+kısıtlamalı çıktı için 90-120 saniyelik bir HTTP zaman aşımı **gerekli**,
+varsayılan 10 saniye yetersiz — bu proje için kalıcı bir mimari karar.
+**Review notları**: Bu gün, planın en riskli maddesiydi ("bozuk JSON / şema
+uyuşmazlığı çıkarsa birlikte debug edelim" diye not edilmişti) ve gerçekten
+öyle çıktı — ama sorun beklenen "bozuk JSON" değil, "zaman aşımı" idi. İlk
+düzeltme denemesinin (özel isimli `Configure`) sessizce işe yaramaması,
+"düzeltmenin gerçekten etkili olduğunu doğrulamadan bir sonraki adıma
+geçmemek" ilkesinin önemini bir kez daha gösterdi — ikinci, daha kaba ama
+garanti bir yöntemle (genel `ServiceDefaults` ayarı) sorun kesin çözüldü.
 
 ---
 

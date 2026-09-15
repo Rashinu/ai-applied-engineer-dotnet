@@ -28,8 +28,18 @@ public static class Extensions
 
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
-            // Turn on resilience by default
-            http.AddStandardResilienceHandler();
+            // Turn on resilience by default. Varsayılan 10sn'lik deneme zaman
+            // aşımı, yerel Ollama modellerinin (özellikle CPU üzerinde) tipik
+            // yanıt sürelerine göre çok kısa — bu projede Worker'ın Ollama'ya
+            // yaptığı çağrılar için yükseltiyoruz. Api'nin dışa doğru hızlı
+            // olması gereken bir çağrısı olmadığı için bu değişiklik güvenli.
+            http.AddStandardResilienceHandler(options =>
+            {
+                options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(90);
+                options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(120);
+                // CircuitBreaker.SamplingDuration, AttemptTimeout'un en az 2 katı olmalı.
+                options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(180);
+            });
 
             // Turn on service discovery by default
             http.AddServiceDiscovery();

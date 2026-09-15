@@ -14,6 +14,10 @@ builder.Services.AddScoped<ICurrentTenantAccessor>(sp => sp.GetRequiredService<M
 builder.AddOllamaApiClient("embeddings").AddEmbeddingGenerator();
 builder.Services.AddSingleton<IProductEmbeddingGenerator, RealEmbeddingGenerator>();
 
+// Ollama'nın "chat" bağlantısına bağlanıp IChatClient'ı DI'a kaydeder —
+// GetResponseAsync<T> ile typed structured output için kullanılacak.
+builder.AddOllamaApiClient("chat").AddChatClient();
+
 builder.Services.AddDbContext<RegulationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("regulationdb"), o => o.UseVector()));
 

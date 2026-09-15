@@ -17,7 +17,7 @@ beklenen ve istenen bir şey, amaç hız değil düzenli ilerleme.
 | 4 | 2026-09-13 | Pazar 19:30-21:00 |
 | 5 | 2026-09-13 | Pazar (Gün 4 ile aynı oturumda devam edildi) |
 | 6 | 2026-09-15 | Salı (plan dışı ek oturum) |
-| 7 | | |
+| 7 | 2026-09-15 | Salı (Gün 6 ile aynı oturumda devam edildi) |
 
 ---
 
@@ -586,11 +586,65 @@ garanti bir yöntemle (genel `ServiceDefaults` ayarı) sorun kesin çözüldü.
 - **Claude'a gel**: Son review — kod kalitesi, README netliği, demo akışını
   birlikte uçtan uca test edelim.
 
-**Durum**: ⬜ Başlanmadı
+**Durum**: ✅ Review edildi (2026-09-15)
 **Yapılanlar**:
--
-**Doğrulama sonucu**:
+- `GET /products/{id}`: `Products` tablosunda `Id` + tenant filtresiyle ara,
+  bulunamazsa `404`, bulunursa entity'yi değil yeni bir `ProductResponse`
+  record'unu (`Id, Name, Category, Price, Quantity, Status`) döndür — entity'nin
+  `Embedding` gibi iç alanlarının API sözleşmesine sızmaması için.
+- `GET /products/{id}/validation`: iki aşamalı kontrol — önce ürün var mı diye
+  bak (yoksa gerçek hata → `404`), varsa `ProductValidations`'ta `ProductId`
+  eşleşmesi ara (henüz yoksa bu bir hata değil, asenkron pipeline'ın doğal bir
+  ara durumu → `200 { "status": "Pending" }`), bulunursa yeni bir
+  `ValidationResponse` record'una (`IsCompliant, CategoryMismatch,
+  PriceAnomalyScore, Reasoning, Violations`) map'leyip dön.
+- İlk yazımda iki bug çıktı, ikisi de review'da yakalanıp düzeltildi:
+  (1) `/validation` endpoint'i kopyala-yapıştır kalıntısıyla `ProductValidations`
+  tablosuna hiç dokunmuyor, hep `Products`'a bakıyordu; (2) DTO'ya geçildikten
+  sonra da "validation bulundu" dalı hâlâ `validation` değil `product`'tan
+  `ProductResponse` üretiyordu — yani endpoint hiçbir zaman gerçek AI kararını
+  dönmüyordu, testte fark edilmeseydi sessizce yanlış kalacaktı.
+- Scalar UI + OpenAPI doküman üretimi eklendi (Claude tarafından, bilinçli bir
+  istisna — bu kısım büyük ölçüde paket/konfig boilerplate'i, öğrenme değeri
+  düşük): `Microsoft.AspNetCore.OpenApi` + `Scalar.AspNetCore` paketleri,
+  `builder.Services.AddOpenApi()`, ve `Development` ortamında
+  `app.MapOpenApi()` + `app.MapScalarApiReference()` (`/scalar/v1`).
+- Proje `README.md`'si tamamen yenilendi: güncel mimari diyagramı (query
+  endpoint'leri dahil), Scalar UI linki, `POST /products` → `GET .../validation`
+  uçtan uca demo akışı, ve "Bilinen sınırlamalar" bölümü (aşağıya bak).
+- Kök `README.md`'deki proje tablosu Gün 1-7 tamamlandı olarak güncellendi.
+
+**Doğrulama sonucu**: Var olan container'lara (Postgres/RabbitMQ, Gün 6'dan
+kalan) bağlanıp Api'yi doğrudan terminalden çalıştırarak dört senaryo elle
+test edildi:
+1. `GET /products/{id}` (var olan ürün, "Silah Kilifi") → `200`, `embedding`
+   alanı yanıtta yok.
+2. `GET /products/{id}/validation` (validate edilmiş ürün) → `200`, gerçek AI
+   kararı (`isCompliant:false, categoryMismatch:true, ...`) dönüyor.
+3. `GET /products/{id}` (olmayan id) → `404`.
+4. `GET /products/{id}/validation` (ürün var, worker henüz işlememiş — DB'de
+   `ProductValidations` kaydı yok) → `200 { "status": "Pending" }`.
+`dotnet build` 0 hata/0 uyarı ile geçti. Scalar UI (`/scalar/v1`) ve OpenAPI
+doküman (`/openapi/v1.json`) endpoint'leri de `200` döndü.
+
 **Review notları**:
+- İki bug da ("yanlış tabloyu sorgulama", "DTO'ya geçerken yanlış kaynaktan
+  map'leme") review adımında, kod build olduğu ve syntax olarak "doğru
+  göründüğü" hâlde yakalandı — ikisi de derleyicinin yakalayamayacağı türden
+  mantık hataları, sadece davranışı bilerek okuyunca ya da gerçek veriyle test
+  edince ortaya çıkıyor. Bu, "build başarılı" ile "doğru çalışıyor"un aynı şey
+  olmadığının iyi bir örneği.
+- `PriceAnomalyScore` ve `Violations` konusundaki Gün 6'dan kalma prompt
+  eksiklikleri hâlâ duruyor (bu Gün 7'nin testinde de tekrar gözlemlendi,
+  `reasoning` metninde bu sefer Türkçe-İngilizce karışık bozuk bir cümle de
+  vardı) — bunlar API katmanıyla değil, `ProductValidationPromptBuilder`'daki
+  talimatların netliğiyle ilgili. Bilinçli olarak bu proje kapsamının dışında
+  bırakıldı (projenin 7 günlük planı burada tamamlanıyor); ileride ayrı bir
+  iyileştirme olarak ele alınabilir.
+- Tenant izolasyonu her iki endpoint'te de hem `HasQueryFilter` (global, otomatik)
+  hem açık `&& p.TenantId == tenantAccessor.TenantId` koşuluyla (redundant ama
+  zararsız) sağlanıyor — kullanıcı bunun neden gerekli olmadığını sorguladı,
+  bilinçli olarak "açıkça görünsün" tercihiyle bıraktı.
 
 ---
 

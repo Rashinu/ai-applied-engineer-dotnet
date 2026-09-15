@@ -4,11 +4,16 @@ using MarketplaceRegulationAgent.Domain;
 using MarketplaceRegulationAgent.Infrastructure;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Aspire: OpenTelemetry, health checks, service discovery vs.
 builder.AddServiceDefaults();
+
+// OpenAPI doküman üretimi (Microsoft.AspNetCore.OpenApi) + Scalar UI.
+// Sadece Development'ta açık — production'da API şemasını dışarı sızdırmamak için.
+builder.Services.AddOpenApi();
 
 // Bu HTTP isteğinin hangi tenant'a ait olduğunu (X-Tenant-Id header'ından) okur.
 builder.Services.AddHttpContextAccessor();
@@ -84,8 +89,44 @@ await publishEndpoint.Publish(new ProductSubmitted(product.Id, product.TenantId,
     return Results.Accepted($"/products/{product.Id}", new { product.Id });
 });
 
+app.MapGet("/products/{id}", async (Guid id, RegulationDbContext db, ICurrentTenantAccessor tenantAccessor) =>
+{
+    var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.TenantId == tenantAccessor.TenantId);
+    if (product == null)
+    {
+        return Results.NotFound();
+    }
+    return Results.Ok(new ProductResponse(product.Id, product.Name, product.Category, product.Price, product.Quantity, product.Status));
+
+});
+
+app.MapGet("/products/{id}/validation", async (Guid id, RegulationDbContext db, ICurrentTenantAccessor tenantAccessor) =>
+{
+    var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.TenantId == tenantAccessor.TenantId);
+    if (product == null)
+    {
+        return Results.NotFound();
+    }
+    var validation = await db.ProductValidations.FirstOrDefaultAsync(v => v.ProductId == id && v.TenantId == tenantAccessor.TenantId);
+    if (validation == null)
+    {
+        return Results.Ok(new { Status = "Pending" });
+    }
+    return Results.Ok(new ValidationResponse(validation.IsCompliant, validation.CategoryMismatch, validation.PriceAnomalyScore, validation.Reasoning, validation.Violations));
+
+});
+
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+    app.MapScalarApiReference();
+}
+
 app.MapDefaultEndpoints();
 
 app.Run();
 
 record CreateProductRequest(string Name, string Category, decimal Price, int Quantity);
+record ProductResponse(Guid Id, string Name, string Category, decimal Price, int Quantity, ProductStatus Status);
+record ValidationResponse(bool IsCompliant, bool CategoryMismatch, double PriceAnomalyScore, string Reasoning, List<string> Violations);
+

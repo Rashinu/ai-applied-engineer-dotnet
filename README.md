@@ -8,7 +8,7 @@ sırasını gösterir.
 
 | # | Proje | Açıklama | Durum |
 |---|-------|----------|-------|
-| 01 | [Marketplace AI Regulation Agent](./01-marketplace-ai-regulation-agent/) | Pazar yeri ürünlerini asenkron denetleyen AI ajanı (.NET Aspire, MassTransit, pgvector, Ollama) | 🚧 Geliştiriliyor — Gün 1-6 ✅ tamamlandı (gerçek AI kararı sistemi yönetiyor), Gün 7'ye geçiliyor |
+| 01 | [Marketplace AI Regulation Agent](./01-marketplace-ai-regulation-agent/) | Pazar yeri ürünlerini asenkron denetleyen AI ajanı (.NET Aspire, MassTransit, pgvector, Ollama) | ✅ Tamamlandı — Gün 1-7, uçtan uca çalışan gerçek AI kararı sistemi + sorgu endpoint'leri + Scalar API dokümantasyonu |
 
 ## Neden bu repo var?
 

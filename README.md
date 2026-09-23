@@ -9,6 +9,7 @@ sırasını gösterir.
 | # | Proje | Açıklama | Durum |
 |---|-------|----------|-------|
 | 01 | [Marketplace AI Regulation Agent](./01-marketplace-ai-regulation-agent/) | Pazar yeri ürünlerini asenkron denetleyen AI ajanı (.NET Aspire, MassTransit, pgvector, Ollama) | ✅ Tamamlandı — Gün 1-7, uçtan uca çalışan gerçek AI kararı sistemi + sorgu endpoint'leri + Scalar API dokümantasyonu |
+| 02 | [LLM FinOps Copiloti](./02-llm-finops-copilot/) | LLM kullanım loglarından maliyet tahmini yapan, maliyet sıçramalarını yakalayan ve kanıta dayalı (grounded) öneriler üreten analiz servisi (ML.NET zaman serisi/anomali tespiti + embedding kümeleme + guarded LLM) | 🚧 Geliştiriliyor — Blok 1 ✅ tamamlandı (proje iskeleti + `LlmCallLog` entity'si) |
 
 ## Neden bu repo var?
 

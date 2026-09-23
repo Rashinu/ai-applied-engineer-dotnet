@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <!--
+    Paket sürümleri buraya, projeler oluşturuldukça eklenecek.
+    Bir proje "dotnet add package X" ile paket eklediğinde, sürüm burada
+    <PackageVersion Include="X" Version="..." /> olarak toplanır; ilgili
+    .csproj'da sadece <PackageReference Include="X" /> kalır (versiyon yazılmaz).
+  -->
+  <ItemGroup>
+    <!-- Blok 1'de Madde 0'da .NET 10 ile uyumluluğu doğrulanan sürümler -->
+    <PackageVersion Include="Microsoft.ML" Version="5.0.0" />
+    <PackageVersion Include="Microsoft.ML.TimeSeries" Version="5.0.0" />
+  </ItemGroup>
+</Project>

@@ -23,6 +23,7 @@ anomali skoru, küme büyüklüğü) referans vermeden öneri üretemiyor.
 | Blok | Tarih | Hafta günü / oturum |
 |------|-------|----------------------|
 | 1 | 2026-09-23 | Çarşamba (kaçırılan Salı bloğu buraya kaydırıldı) |
+| 2 (kısmi) | 2026-09-26 / 2026-09-27 | Cumartesi 2sa + Pazar 1,5sa (tek blok olarak birleşti) |
 
 ---
 
@@ -152,6 +153,82 @@ doğruladı); `Id` `Guid`'e çevrildikten sonra 0 uyarı/0 hata ile geçti.
   hiçbir versiyon/API sürprizi yok. Asıl risk muhtemelen ileride (Blok 4-5,
   7-8) bu API'lerin doğru parametrelerle kullanılmasında çıkacak, paket
   varlığında değil.
+
+---
+
+## Blok 2 (kısmi) — Sentetik veri üretici: hacim + sezonluk desen
+
+- **Yap**: `LlmFinOpsCopilot.DataGenerator` konsol projesi; 90 günlük bir zaman
+  aralığına yayılan, saatlik/haftalık sezonluk desene sahip ~300-500K
+  `LlmCallLog` üreten mantık; Provider/Model tutarlılığı; token sayısı/maliyet
+  hesaplama.
+- **Neden**: Bu üretici, projenin geri kalan tüm ML/AI modüllerinin (Blok 4-12)
+  üzerine kurulacağı temel veri seti — gerçekçi olmayan/tutarsız veri, sonraki
+  bloklardaki analizleri anlamsızlaştırır.
+- **Doğrulama**: `dotnet run` çıktısı tek bir özet satırı ("Toplam N log
+  üretildi") vermeli, N 300.000-500.000 aralığında olmalı.
+- **Claude'a gel**: Mekanik/derleme hatalarında (döngü yerleşimi, değişken
+  kapsamı) ve kavramsal tasarım kararlarında (Provider/Model tutarlılığı,
+  neden ayrı token alanları) yardım.
+
+**Durum**: 🔶 Kısmi tamamlandı (2026-09-27) — anomali enjeksiyonu (agent retry
+fırtınası senaryosu + ground-truth etiket listesi) Blok 2'nin planlanan üçüncü
+parçasıydı, bu oturuma sığmadı, bir sonraki oturuma (hafta içi bir bloğa,
+takvime bağlı) bırakıldı. Blok tam bitmeden commit atılması bilinçli bir
+sapma — kullanıcının isteği üzerine, düzenli aralıklarla commit atmanın
+(GitHub'a taşındıktan sonra görünürlük için) blok tamamlanma kuralından daha
+öncelikli tutulduğu bir durum.
+
+**Yapılanlar**:
+- Proje iskeleti: `dotnet new console` + `dotnet add reference` (Domain'e) +
+  `dotnet sln add` — üçünün ne işe yaradığı (`.csproj` = tek proje tanımı,
+  `.slnx` = proje listesi, `reference` = projeler arası bağımlılık) ayrıca
+  konuşuldu.
+- Üretici mantığı, kullanıcı tarafından çok sayıda küçük review turunda
+  aşamalı olarak inşa edildi:
+  1. Tek bir sabit `LlmCallLog` üretimi → 10 tanelik bir döngüye çevrildi,
+     konsola yazdırma eklendi.
+  2. Provider ilk başta bağımsız rastgele seçiliyordu, Model ayrı bağımsız
+     rastgele seçiliyordu — bu, "Ollama + gpt-4" gibi anlamsız kombinasyonlar
+     üretebilirdi. `Dictionary<string, string[]>` (Provider → o Provider'a ait
+     modeller) yapısına geçilerek geçersiz kombinasyon **yapısal olarak
+     imkansız** kılındı (sonradan doğrulama/reddetme yerine, baştan
+     engelleme).
+  3. Sabit "10 log" yerine zaman bazlı üretime geçildi: dış döngü 90 günlük
+     aralığı saat saat geziyor (`AddHours(1)`), her saat için `HourMultiplier`
+     (mesai saati/gece) × `DayMultiplier` (hafta içi/hafta sonu) çarpanlarıyla
+     `countThisHour` hesaplanıyor, iç döngü o saatte `countThisHour` kadar log
+     üretiyor.
+  4. Üç ayrı regresyon/yerleşim hatası review'da yakalandı: `baseRate`
+     tanımlanmadan kullanılmıştı (derleme hatası); `Timestamp` bir ara
+     tekrar `DateTime.UtcNow`'a dönmüştü (tüm logların aynı ana damgalanması
+     — 90 günlük yayılımı geçersiz kılan kritik bir hata); özet
+     `Console.WriteLine` satırı sırasıyla iç döngünün içinde, sonra dış
+     döngünün içinde kaldı (400K, sonra 2160 kez basıldı) — son yerleşim
+     hatası kullanıcının isteği üzerine Claude tarafından doğrudan
+     düzeltildi (kullanıcı "kafamı karıştırdı" dedi, tekrar tekrar
+     açıklamak yerine direkt düzeltme tercih edildi).
+- `baseRate = 185` (saatte ortalama çağrı, çarpanlar öncesi) ve 90 günlük
+  aralıkla hedeflenen 300-500K satır aralığına ilk denemede isabet edildi.
+
+**Doğrulama sonucu**: `dotnet run` → `Toplam 407318 log üretildi.` — tek
+satır, hedef aralıkta (300K-500K).
+
+**Review notları**:
+- Provider/Model tutarlılığı için "sonradan kontrol et" yerine "geçersiz
+  durumu baştan imkansız kıl" (Dictionary ile) yaklaşımının seçilmesi iyi bir
+  karardı — kullanıcı ilk başta "extra kontrol" (reddet/tekrar dene) seçeneğini
+  düşünüyordu, yapısal çözümün neden üstün olduğu (bakım kolaylığı, yeni model
+  eklendiğinde otomatik doğru davranış) tartışıldı.
+- Bu blokta üç kez aynı türden bir hata deseni tekrarlandı: bir önceki turda
+  düzeltilen bir şey (döngü içi/dışı yerleşim, `Timestamp` kaynağı) bir
+  sonraki elle yapılan değişiklikte sessizce geri geldi. Girinti (indentation)
+  düzensizliğinin bunu görmeyi zorlaştırdığı gözlemlendi — kullanıcıya VS
+  Code'un otomatik girinti kısayolu önerildi.
+- Anomali enjeksiyonunun ertelenmesi doğru bir kapsam kararı — bugünkü blok
+  zaten planlanan 1,5 saatin çok üzerine çıktı (iki oturum birleşti), yeni bir
+  kavramı (rastgele zaman pencereleri + ground-truth etiketleme) yorgun/uzamış
+  bir oturumda eklemek risk taşırdı.
 
 ---
 

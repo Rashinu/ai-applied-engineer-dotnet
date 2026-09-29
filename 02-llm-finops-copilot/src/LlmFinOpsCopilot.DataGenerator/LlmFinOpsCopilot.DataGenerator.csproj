@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\LlmFinOpsCopilotDomain\LlmFinOpsCopilotDomain.csproj" />
+    <ProjectReference Include="..\LlmFinOpsCopilot.Infrastructure\LlmFinOpsCopilot.Infrastructure.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

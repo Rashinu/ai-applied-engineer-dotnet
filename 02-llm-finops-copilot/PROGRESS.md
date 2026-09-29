@@ -24,6 +24,7 @@ anomali skoru, küme büyüklüğü) referans vermeden öneri üretemiyor.
 |------|-------|----------------------|
 | 1 | 2026-09-23 | Çarşamba (kaçırılan Salı bloğu buraya kaydırıldı) |
 | 2 (kısmi) | 2026-09-26 / 2026-09-27 | Cumartesi 2sa + Pazar 1,5sa (tek blok olarak birleşti) |
+| 2 (tamamlandı) + 3 | 2026-09-29 | Salı 19:30-21:00+ (blok uzadı — anomali enjeksiyonu + DB entegrasyonu tek oturumda) |
 
 ---
 
@@ -156,7 +157,7 @@ doğruladı); `Id` `Guid`'e çevrildikten sonra 0 uyarı/0 hata ile geçti.
 
 ---
 
-## Blok 2 (kısmi) — Sentetik veri üretici: hacim + sezonluk desen
+## Blok 2 — Sentetik veri üretici: hacim + sezonluk desen + anomali enjeksiyonu
 
 - **Yap**: `LlmFinOpsCopilot.DataGenerator` konsol projesi; 90 günlük bir zaman
   aralığına yayılan, saatlik/haftalık sezonluk desene sahip ~300-500K
@@ -171,13 +172,11 @@ doğruladı); `Id` `Guid`'e çevrildikten sonra 0 uyarı/0 hata ile geçti.
   kapsamı) ve kavramsal tasarım kararlarında (Provider/Model tutarlılığı,
   neden ayrı token alanları) yardım.
 
-**Durum**: 🔶 Kısmi tamamlandı (2026-09-27) — anomali enjeksiyonu (agent retry
-fırtınası senaryosu + ground-truth etiket listesi) Blok 2'nin planlanan üçüncü
-parçasıydı, bu oturuma sığmadı, bir sonraki oturuma (hafta içi bir bloğa,
-takvime bağlı) bırakıldı. Blok tam bitmeden commit atılması bilinçli bir
-sapma — kullanıcının isteği üzerine, düzenli aralıklarla commit atmanın
-(GitHub'a taşındıktan sonra görünürlük için) blok tamamlanma kuralından daha
-öncelikli tutulduğu bir durum.
+**Durum**: ✅ Review edildi (2026-09-29) — hacim/sezonluk desen kısmı
+27 Eylül'de bitmişti (o noktada kısmi commit atılmıştı, kullanıcının isteği
+üzerine, blok tam bitmeden — bilinçli bir sapma). Anomali enjeksiyonu
+(agent retry fırtınası senaryosu + ground-truth pencere listesi) 29 Eylül
+Salı bloğunda tamamlandı.
 
 **Yapılanlar**:
 - Proje iskeleti: `dotnet new console` + `dotnet add reference` (Domain'e) +
@@ -229,6 +228,102 @@ satır, hedef aralıkta (300K-500K).
   zaten planlanan 1,5 saatin çok üzerine çıktı (iki oturum birleşti), yeni bir
   kavramı (rastgele zaman pencereleri + ground-truth etiketleme) yorgun/uzamış
   bir oturumda eklemek risk taşırdı.
+
+### Ek: Anomali enjeksiyonu (29 Eylül'de tamamlanan kısım)
+
+**Yapılanlar**:
+- `anomalyWindows` (`List<(DateTime start, DateTime end)>`) — ana döngüden
+  önce, 5-10 rastgele başlangıç noktası ve 1-5 saatlik süre ile üretiliyor.
+  Bu liste aynı zamanda ileride (Blok 7-9) anomali tespitinin precision/
+  recall'unu ölçeceğimiz **ground-truth** olacak.
+- Ana döngüde, her saat için `foreach` ile `anomalyWindows`'un taranıp o
+  saatin bir pencerenin içinde olup olmadığının kontrol edilmesi
+  (`isAnomaly` bayrağı); eşleşirse `countThisHour`'un 5-10 kat büyütülmesi.
+- Kavramsal olarak yeni gelen noktalar (`foreach`'in `in` anahtar
+  kelimesinin sözdizimsel anlamı, tuple alanlarına `.` ile erişim, interface
+  uygulama söz dizimi `: IDesignTimeDbContextFactory<T>` — bir sonraki
+  bölümde) tek tek, somut örneklerle ayrıca açıklandı.
+
+**Doğrulama sonucu**: `dotnet run` → `Toplam 438699 log üretildi.` (önceki
+407.318'den ~30.600 fazla — anomali pencerelerinde üretilen ekstra loglar).
+
+---
+
+## Blok 3 — DB entegrasyonu: Infrastructure projesi + migration + gerçek yazma
+
+- **Yap**: `LlmFinOpsCopilot.Infrastructure` class library (`LlmDbContext`,
+  `LlmDbContextFactory`), ilk migration, ayrı bir Postgres container
+  (Proje 1'inkinden bağımsız), ve `DataGenerator`'ın ürettiği ~440K logu
+  gerçekten bu veritabanına yazması.
+- **Neden**: Bu veri seti artık bellekte değil, kalıcı — Blok 4'ten itibaren
+  ML.NET modülleri bu tabloyu okuyacak.
+- **Doğrulama**: Postgres'te `SELECT COUNT(*) FROM "LlmCallLogs"` üretilen
+  log sayısıyla eşleşmeli; birkaç örnek satırda Provider/Model tutarlılığı
+  ve `Timestamp`'in 90 günlük aralığa gerçekten yayıldığı gözle
+  doğrulanmalı.
+- **Claude'a gel**: EF Core/migration mekaniği (Proje 1'in tekrarı, düşük
+  öğrenme yükü) ve mekanik hatalarda (proje referansları, connection string,
+  Docker) yardım.
+
+**Durum**: ✅ Review edildi (2026-09-29)
+
+**Yapılanlar**:
+- `LlmDbContext : DbContext` — tek bir `DbSet<LlmCallLog>`, Proje 1'deki
+  `RegulationDbContext`'in çok sadeleştirilmiş hali (multi-tenant değil, query
+  filter yok). `base(options)` ile constructor zincirleme, `DbContext`'in
+  bağlantı bilgisini nasıl aldığı ayrıca açıklandı.
+- `LlmDbContextFactory : IDesignTimeDbContextFactory<LlmDbContext>` —
+  Proje 1'deki `RegulationDbContextFactory`'nin sadeleştirilmiş hali;
+  interface uygulama söz dizimi (`:` işaretinin base class'tan türetmeyle
+  farkı) somut örnekle açıklandı.
+- İlk `dotnet ef migrations add InitialCreate` denemesi kullanıcı tarafından
+  başarıyla çalıştırılmış (migration dosyaları `LlmCallLog`'un tüm alanlarını
+  doğru şekilde yansıtıyor); Claude'un aynı komutu tekrar denemesi doğal
+  olarak "migration zaten var" hatası verdi, kullanıcının tarafında zaten
+  başarılı olduğu bu şekilde doğrulandı.
+- Ayrı bir Postgres container'ı (`llmfinops-postgres`, port 5433, Proje 1'in
+  Aspire-yönetimli container'ından bağımsız) Claude tarafından başlatıldı;
+  connection string'deki DB adı (`llmfinopscopilotdb`) ile container'daki
+  DB adı arasındaki uyumsuzluk fark edilip container içinde ek bir
+  `CREATE DATABASE` ile giderildi.
+- `dotnet ef database update` ile migration uygulandı, `LlmCallLogs` tablosu
+  oluştu.
+- `DataGenerator`'ın DB'ye yazma kodu üç review turunda düzeltildi:
+  1. İlk yazımda DB yazma bloğu `logs` listesi doldurulmadan **önce**
+     duruyordu (henüz boş bir listeyi DB'ye yazmaya çalışıyordu) — kullanıcı
+     bunu kendi sezgisiyle ("yanlış yere yazdık gibi hissediyorum") fark etti.
+  2. `context`/`db` değişken adı tutarsızlığı ve eksik `using` importları
+     ayrı bir turda düzeltildi.
+  3. `DataGenerator`'ın `Infrastructure`'a proje referansı eksikti; eklenmeye
+     çalışılırken bağımsız bir hata ortaya çıktı — `Infrastructure.csproj`
+     kendi kendine (`LlmFinOpsCopilot.Infrastructure.csproj`) referans
+     veriyordu (muhtemelen önceki bir `dotnet add reference` komutunun yanlış
+     dizinden çalıştırılmasından kalma), bu dairesel bağımlılığa yol açıyordu.
+     Claude tarafından tespit edilip kaldırıldı.
+- Build, `Microsoft.EntityFrameworkCore.Relational` için bir sürüm çakışması
+  uyarısı (MSB3277) veriyor (10.0.4 vs 10.0.12) — engelleyici değil,
+  şimdilik bilinen/kabul edilen bir uyarı olarak bırakıldı; istenirse
+  `Directory.Packages.props`'a açık bir pin eklenerek kesin çözülebilir.
+
+**Doğrulama sonucu**: `dotnet run` sonrası Postgres'te
+`SELECT COUNT(*) FROM "LlmCallLogs"` → `438699` (bellekteki sayıyla birebir
+eşleşiyor). Örnek satırlarda Provider/Model tutarlı (`OpenAI`+`gpt-4`,
+`Anthropic`+`claude-v1`, `Ollama`+`ollama-model-1` — hiç geçersiz kombinasyon
+yok), `Timestamp` değerleri 1 Temmuz 2026'dan başlayarak 90 günlük aralığa
+gerçekten yayılmış.
+
+**Review notları**:
+- Kullanıcının "yanlış yere yazdık gibi hissediyorum" sezgisi doğru çıktı —
+  bu, kod okuma/döngü akışını takip etme becerisinin gelişmekte olduğunun
+  iyi bir işareti.
+- Dairesel proje referansı hatası, DataGenerator'ın Infrastructure'a
+  referans eksikliğiyle ilgisizdi — birbirine karışan iki ayrı sorunu
+  ayırt edip doğru olanı teşhis etmek, hata mesajını (MSB4006, dairesel
+  bağımlılık) dikkatli okumayı gerektirdi.
+- Bu blokta Proje 1'in desenlerinin (DbContext, design-time factory,
+  migration) tekrar kullanılması bloğu hızlandırdı — yeni kavram sadece
+  `base(options)` constructor zincirleme ve interface söz dizimiydi, gerisi
+  zaten bilinen bir kalıptı.
 
 ---
 

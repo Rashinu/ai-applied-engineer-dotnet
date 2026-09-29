@@ -1,9 +1,12 @@
 ﻿using LlmFinOpsCopilotDomain;
 using System.Collections.Generic;
+using Microsoft.EntityFrameworkCore;
+using LlmFinOpsCopilot.Infrastructure;
 
 var logs = new List<LlmCallLog>();
 string [] providers = ["OpenAI", "Anthropic", "Ollama"];
 var baseRate = 185; // Base number of calls per hour
+
 
 var providerModels = new Dictionary<string, string[]>
 {
@@ -24,13 +27,33 @@ double DayMultiplier (DayOfWeek dayOfWeek)
     return (dayOfWeek == DayOfWeek.Saturday || dayOfWeek == DayOfWeek.Sunday) ? 0.5 : 1.0; // Lower multiplier on weekends
 }
 
+var anomalyWindows = new List<(DateTime start, DateTime end)>();
+int anomalyCount = Random.Shared.Next(5, 11); // Randomly choose between 3 to 5 anomaly windows
 
-
+for (int i = 0; i < anomalyCount; i++)
+{
+    DateTime anomalyStart = startDate.AddDays(Random.Shared.Next(0, 90)).AddHours(Random.Shared.Next(0, 24));
+    DateTime anomalyEnd = anomalyStart.AddHours(Random.Shared.Next(1, 5)); // Anomalies last between 1 to 5 hours
+    anomalyWindows.Add((anomalyStart, anomalyEnd));
+}
 
 for (DateTime date = startDate; date <= endDate; date = date.AddHours(1))
 {
 double multiplier = HourMultiplier(date.Hour) * DayMultiplier(date.DayOfWeek);
 int countThisHour = (int)(baseRate*multiplier);
+bool isAnomaly = false;
+foreach (var window in anomalyWindows)
+{
+    if (date >= window.start && date <= window.end)
+    {
+        isAnomaly = true;
+        break;
+    }
+}
+if (isAnomaly)
+{
+    countThisHour *= Random.Shared.Next(5, 11); // Triple the count during anomaly windows
+}
 for (int i = 0; i < countThisHour; i++)
 {
 var providerNames = providerModels.Keys.ToArray();
@@ -60,5 +83,12 @@ var log = new LlmCallLog
 logs.Add(log);
 }
 }
+var options = new DbContextOptionsBuilder<LlmDbContext>()
+    .UseNpgsql("Host=localhost;Port=5433;Database=llmfinopscopilotdb;Username=postgres;Password=postgres")
+    .Options;
+using var context = new LlmDbContext(options);
+await context.LlmCallLogs.AddRangeAsync(logs);
+await context.SaveChangesAsync();
 
 Console.WriteLine($"Toplam {logs.Count} log üretildi.");
+Console.WriteLine("Veritabanına yazıldı.");

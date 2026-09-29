@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/LlmFinOpsCopilot.DataGenerator/LlmFinOpsCopilot.DataGenerator.csproj" />
+    <Project Path="src/LlmFinOpsCopilot.Infrastructure/LlmFinOpsCopilot.Infrastructure.csproj" />
     <Project Path="src/LlmFinOpsCopilotDomain/LlmFinOpsCopilotDomain.csproj" />
   </Folder>
 </Solution>

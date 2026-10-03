@@ -25,6 +25,7 @@ anomali skoru, küme büyüklüğü) referans vermeden öneri üretemiyor.
 | 1 | 2026-09-23 | Çarşamba (kaçırılan Salı bloğu buraya kaydırıldı) |
 | 2 (kısmi) | 2026-09-26 / 2026-09-27 | Cumartesi 2sa + Pazar 1,5sa (tek blok olarak birleşti) |
 | 2 (tamamlandı) + 3 | 2026-09-29 | Salı 19:30-21:00+ (blok uzadı — anomali enjeksiyonu + DB entegrasyonu tek oturumda) |
+| 4 | 2026-10-03 | Cumartesi (planlı blok) — ML.NET SSA pipeline + baseline MAPE |
 
 ---
 
@@ -324,6 +325,66 @@ gerçekten yayılmış.
   migration) tekrar kullanılması bloğu hızlandırdı — yeni kavram sadece
   `base(options)` constructor zincirleme ve interface söz dizimiydi, gerisi
   zaten bilinen bir kalıptı.
+
+---
+
+## Blok 4 — ML.NET SSA forecasting: pipeline + baseline MAPE
+
+- **Yap**: `LlmFinOpsCopilot.Forecasting` konsol projesi; saatlik toplam
+  maliyet serisini Postgres'ten okuyup ML.NET SSA ile 24 saatlik tahmin ve
+  doğruluk ölçümü (MAPE).
+- **Neden**: Projenin "tahmin" ayağının temeli. Tahmin doğruluğunu ölçmeden
+  anomali tespiti ya da öneri katmanı anlamlı bir zemine oturmaz.
+- **Doğrulama**: 24 saatlik tahmin üretiliyor, gerçek değerlerle
+  karşılaştırılıp MAPE yazdırılıyor.
+- **Claude'a gel**: API keşfi, pipeline parametreleri, sonuçların yorumu.
+
+**Durum**: ✅ Review edildi (2026-10-03) — pipeline çalışıyor, baseline ölçüldü.
+Parametre optimizasyonu ve çoklu pencere backtest'i Blok 5'e bırakıldı.
+
+**Yapılanlar**:
+- Proje iskeleti: `dotnet new console` + `dotnet add reference` (Infrastructure)
+  + `dotnet sln add`. İlk denemede proje yanlış dizine (kök) oluştu, taşındı.
+- Veri okuma: `LlmCallLogs` üzerinde saat bazlı `GroupBy` + `Sum`. Önce
+  `Select` içinde `new DateTime(...)` kurmak EF Core tarafından SQL'e
+  çevrilemedi (çalışma zamanı hatası). Düzeltme: veritabanı yalnızca
+  `Year/Month/Day/Hour` gruplar ve toplar, `DateTime` ve sıralama
+  `ToListAsync()`'ten sonra bellekte yapılır.
+- Model: `ForecastBySsa` (windowSize 24, eğitim = son 168 saatin ilk 144'ü,
+  horizon 24). `decimal` → `float` dönüşümü ML.NET için zorunlu.
+- Tahmin: `CreateTimeSeriesEngine` ile `Predict()`. Bu API
+  `Microsoft.ML.Transforms.TimeSeries` namespace'inde.
+- Ölçüm: son 24 saat gerçek değerlerle karşılaştırıldı, MAPE hesaplandı.
+
+**Doğrulama sonucu**: Baseline MAPE **%17,27** (windowSize 24, 168 saat eğitim
+penceresi). Build ve çalıştırma hatasız.
+
+**Deneyler**:
+- `windowSize: 48` (diğer her şey aynı): MAPE **%106,79**. Pencere eğitim
+  verisine göre çok büyük kaldığı için (144 saatte yalnızca ~97 örnek pencere)
+  model kararsızlaştı. Bu bir hipotez, doğrulanmadı. Ayarı 24'e geri alındı.
+- Eğitim verisi tüm geçmiş (2160 saat) yerine son 168 saat yapıldığında,
+  ilk denemedeki 12-70 arası dalgalı tahmin, 12-23 arası düzgün bir tahmine
+  döndü. Bu da eski verideki anomali pencerelerinin ya da uzun eğitim
+  penceresinin tahmini bozduğunu düşündürüyor, ama iki değişkenin etkisi
+  ayrılmadı.
+
+**Review notları**:
+- Sistematik sapma: model gündüz (09-16) değerlerini düşük tahmin ediyor
+  (~20-21 vs gerçek ~28). Gece saatlerinde de hafif düşük. Yani genlik
+  sönümleniyor, seviye aşağıda kalıyor.
+- Tek 24 saatlik pencere istatistiksel olarak zayıf bir ölçüm. Blok 5'te
+  rolling backtest ile birden fazla pencerede tekrar edilecek.
+- Bu blokta iki büyük tuzak yaşandı, ikisi de ML.NET/EF Core'un "derlenir
+  ama çalışmaz" türünden hataları: (1) `DateTime` kurulumunun SQL'e
+  çevrilememesi, (2) `CreateTimeSeriesEngine`'in doğru namespace'ini bulmak
+  için reflection gerekmesi. Reflection ile API doğrulama tekniği bu blokta
+  da işe yaradı.
+- Kullanıcının "hallüsinasyon mu?" sorusuyla yapılan kontrol önemliydi: ilk
+  açıklamam (anomali pencereleri tahmini bozuyor) doğrulanmadan verilmişti;
+  veri kontrolü son 30 saatin temiz olduğunu gösterdi, açıklama
+  "hipotez" olarak yeniden çerçevelendi. Bu tür açıklamaların veriyle
+  doğrulanması gerektiği bir ders oldu.
 
 ---
 

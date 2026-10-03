@@ -386,6 +386,51 @@ penceresi). Build ve çalıştırma hatasız.
   "hipotez" olarak yeniden çerçevelendi. Bu tür açıklamaların veriyle
   doğrulanması gerektiği bir ders oldu.
 
+### Ek: Rolling-origin backtest ve eğitim verisi temizliği (2026-10-03)
+
+**Yapılanlar**:
+- Tek 24 saatlik holdout yerine 5 kesim noktası (her biri 24 saat geriye)
+  ile rolling-origin backtest. Her pencerede eğitim verisi kesim noktasından
+  önceki veriyle sınırlı (sızıntı yok), tahmin ufku 24 saat.
+- Pencere başına gerçek/tahmin tablosu yazdırıldı (hata ayıklama için).
+- Her pencerede eğitim verisindeki sıçramalar, o pencerenin medyanının 3
+  katını aşan saatler olarak tanımlanıp medyanla değiştirildi. Silme değil
+  değiştirme seçildi, çünkü zaman serisinin düzenli adımları korunmalı.
+  Temizlik yalnızca eğitim verisine uygulandı, test (gerçek) değerleri
+  olduğu gibi kaldı.
+
+**Denemeler** (her biri tek değişken, öncekine göre):
+1. Baseline (window 24, eğitim 168 saat): tek pencere MAPE %17,27. Backtest
+   ortalaması (5 pencere) %59,84, dağılım 16,7% ile 110,7% arası. Yani tek
+   pencere sonucu güvenilir değilmiş.
+2. Window 48 (diğer her şey aynı): tek pencere MAPE %106,79. Geri alındı.
+3. Window 168 + eğitim 672 saat: backtest ortalaması **%46,22** (16,7 → 13,4
+   hafta içi). Haftalık örüntü kısmen öğrenildi, ama hafta sonu pencereleri
+   ve sıçramalar hâlâ büyük hata veriyordu.
+4. Eğitimdeki sıçramaların temizlenmesi (window 168, eğitim 672, eşik 3×
+   medyan): backtest ortalaması **%8,72**. Pencereler: %4,73 / %9,57 /
+   %19,98 / %5,55 / %3,78.
+
+**Doğrulama sonucu**: Son yapılandırmada 5 pencerenin dördü %10 altında.
+Pencere 3'ün (%20) hatası test döneminde 27 Eylül'deki gerçek sıçramadan
+kaynaklanıyor (gerçek değer 140'a çıkıyor). Model bu sıçramayı öngöremez;
+bu, anomali tespitinin (Blok 7-8) konusu.
+
+**Review notları**:
+- Önceki %17,27'lik baseline tek bir pencereye dayanıyordu ve bu pencere
+  şanslıymış. Tek holdout ile model seçmek yanıltıcı olurdu. Backtest bunu
+  ortaya çıkardı.
+- Hipotez zinciri veriyle sınandı: (a) eğitimdeki sıçramalar tahmini bozar
+  → temizlik sonrası iyileşme doğruladı. (b) Haftalık örüntü öğrenilmesi
+  gerekir → window 168 iyileştirdi. (c) Test'teki sıçramalar öngörülemez →
+  pencere 3 hatası bunu gösteriyor.
+- **Dürüstlük notu**: 3× medyan eşiği elle seçildi ve yalnızca bu veri
+  setinde denendi. Farklı eşiklerle sonuç değişebilir; bu, genelleme iddiası
+  için yeterli değil. Blok 5'te eşik duyarlılığı test edilmeli.
+- Tahmin, gerçek 24 saat değerleri yan yana (pencere 4 örneği) incelendiğinde
+  hafta sonu gece düşüşünün (~9 vs ~18) modelin hafta içi ritmiyle
+  karıştığı görüldü. Window 168 bunu büyük ölçüde çözdü.
+
 ---
 
 ## Roller

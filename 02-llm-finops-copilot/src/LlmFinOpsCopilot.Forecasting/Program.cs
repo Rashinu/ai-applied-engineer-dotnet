@@ -24,6 +24,7 @@ var mlContext = new MLContext();
 const int trainLength = 672; // Her pencerede eğitim uzunluğu (4 hafta)
 const int horizon = 24;      // Her pencerede tahmin ufku
 const int windowCount = 5;   // Kaç kesim noktası
+const double spikeMultiplier = 3; // Sıçrama eşiği: medyanın kaç katı
 
 var mapes = new List<double>();
 
@@ -41,7 +42,7 @@ for (int w = 0; w < windowCount; w++)
     // Eğitim verisindeki sıçramaları medyanla değiştir (eşik: medyanın 3 katı)
     var sortedCosts = trainSlice.Select(p => (double)p.Cost).OrderBy(c => c).ToList();
     double median = sortedCosts[sortedCosts.Count / 2];
-    double spikeThreshold = 3 * median;
+    double spikeThreshold = spikeMultiplier * median;
 
     var trainInputs = trainSlice
         .Select(point => new CostInput

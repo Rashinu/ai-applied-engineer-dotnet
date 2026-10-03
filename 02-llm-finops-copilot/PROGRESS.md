@@ -431,6 +431,21 @@ bu, anomali tespitinin (Blok 7-8) konusu.
   hafta sonu gece düşüşünün (~9 vs ~18) modelin hafta içi ritmiyle
   karıştığı görüldü. Window 168 bunu büyük ölçüde çözdü.
 
+### Ek: Sıçrama eşiği duyarlılık testi (2026-10-03)
+
+Eşik (medyanın kaç katı) 2×, 3×, 4×, 6× için aynı 5 pencereli backtest:
+
+| Eşik | P1 | P2 | P3 | P4 | P5 | Ortalama |
+|---|---|---|---|---|---|---|
+| 2× | 4,73 | 9,57 | 19,98 | 5,55 | 3,78 | 8,72 |
+| 3× | 4,73 | 9,57 | 19,98 | 5,55 | 3,78 | 8,72 |
+| 4× | 11,02 | 14,71 | 19,98 | 5,55 | 3,78 | 11,01 |
+| 6× | 11,84 | 16,50 | 19,98 | 5,55 | 3,78 | 11,53 |
+
+Okuma: 2-3× aralığında sonuç değişmiyor (plato), 4× ve üstünde pencere 1-2
+bozuluyor (temizlenmeyen sıçramalar eğitime giriyor). 3× platonun içinde,
+seçim makul. Alt sınır (normal gündüz tepesi ≈ 1,6× medyan) test edilmedi.
+
 ---
 
 ## Roller

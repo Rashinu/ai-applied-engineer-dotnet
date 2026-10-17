@@ -26,6 +26,7 @@ anomali skoru, küme büyüklüğü) referans vermeden öneri üretemiyor.
 | 2 (kısmi) | 2026-09-26 / 2026-09-27 | Cumartesi 2sa + Pazar 1,5sa (tek blok olarak birleşti) |
 | 2 (tamamlandı) + 3 | 2026-09-29 | Salı 19:30-21:00+ (blok uzadı — anomali enjeksiyonu + DB entegrasyonu tek oturumda) |
 | 4 | 2026-10-03 | Cumartesi (planlı blok) — ML.NET SSA pipeline + baseline MAPE |
+| 7 | 2026-10-17 | Cumartesi (planda Salı'ydı, bonus Cuma oturumuyla başlayıp Cumartesi'de bitti) — anomali tespiti: IidSpike + ground truth persistance + precision/recall |
 
 ---
 
@@ -445,6 +446,75 @@ Eşik (medyanın kaç katı) 2×, 3×, 4×, 6× için aynı 5 pencereli backtest
 Okuma: 2-3× aralığında sonuç değişmiyor (plato), 4× ve üstünde pencere 1-2
 bozuluyor (temizlenmeyen sıçramalar eğitime giriyor). 3× platonun içinde,
 seçim makul. Alt sınır (normal gündüz tepesi ≈ 1,6× medyan) test edilmedi.
+
+---
+
+## Blok 7 — Anomali tespiti: IidSpike, ground truth persistance, precision/recall
+
+- **Yap**: `IidSpikeEstimator` ile saatlik maliyet serisinde anomali tespiti;
+  Blok 2'deki `anomalyWindows`'u (daha önce hiç kalıcı olmayan) DB'ye
+  taşımak; tespit edilenleri ground truth'a karşı precision/recall ile ölçmek.
+- **Neden**: Forecasting "normalde ne olur" sorusuna cevap veriyordu, anomali
+  tespiti "şu an normalden sapma var mı" sorusuna cevap veriyor — FinOps
+  Copilot'un maliyet sıçramasını **aynı gün yakalama** iddiasının temeli bu.
+- **Doğrulama**: Precision/recall sayıları, bilinen (DB'ye kaydedilmiş) 6
+  pencereye karşı hesaplanmalı.
+- **Claude'a gel**: API keşfi (`mlContext.Transforms` vs `mlContext.Forecasting`,
+  `confidence` parametresinin deprecated int/double overload'ları),
+  precision/recall tanımı (pencere bazlı mı saat bazlı mı) kararı.
+
+**Durum**: ✅ Review edildi (2026-10-17)
+
+**Yapılanlar**:
+- İki oturumda tamamlandı: Cuma (17 Ekim) bonus 1 saatte pipeline kuruldu ve
+  ilk ham sıçrama listesi alındı (henüz ground truth karşılaştırması yoktu);
+  Cumartesi aynı gün devamında ground truth kalıcı hale getirildi ve
+  precision/recall hesaplandı.
+- API hataları, Blok 1'deki reflection bulgularına rağmen ilk denemede
+  birkaç kez yanlış kuruldu: `mlContext.Forecasting.DetectIidSpike(...)`
+  yazıldı (olmayan bir üye — asıl yer `mlContext.Transforms`), ayrıca
+  `trainingWindowSize` diye var olmayan bir parametre eklendi (o parametre
+  `DetectSpikeBySsa`'ya ait, `DetectIidSpike`'a değil). Derleyici hataları
+  sırayla düzeltildi. Ayrıca `confidence: 95` (int) overload'ı deprecated
+  çıktı, `confidence: 95.0` (double) olarak değiştirildi.
+- `allInputs`/`allData`: `hourly`'nin **tamamı** (backtest dilimleri değil)
+  `CostInput`'a çevrilip `IDataView`'a yüklendi — anomali tespiti tüm
+  geçmişe bakmalı, sadece bir pencereye değil.
+- `finalPipeline.Fit(allData).Transform(allData)` sonrası
+  `CreateEnumerable<SpikeResult>(..., reuseRowObject: false)` ile sonuç
+  tekrar C# listesine çevrildi. `SpikeResult.Prediction` 3 elemanlı bir dizi
+  (anomali bayrağı, p-değeri, martingale skoru).
+- `spikePoints`: iki aşamalı `Select` — önce `(result, index)` overload'ı ile
+  her tahmine sıra numarası eklendi (çünkü `SpikeResult`'ta `Timestamp` yok),
+  `Where` ile `Prediction[0] == 1` olanlar filtrelendi, sonra `index` ile
+  `hourly`'den gerçek zaman damgası geri çekildi.
+- **Ground truth kalıcılığı**: `AnomalyWindow` entity'si (Domain), `LlmDbContext`'e
+  `DbSet<AnomalyWindow>` eklendi, migration (`AddAnomalyWindows`) oluşturulup
+  uygulandı. `DataGenerator`'a, ürettiği `anomalyWindows` tuple listesini bu
+  tabloya yazan kod eklendi. Mevcut 429K/440K satırlık tablo (ground truth'u
+  hiç içermediği için) `TRUNCATE` edilip veri baştan üretildi — bu sefer
+  pencereler de kalıcı.
+- **Precision/recall tanımı bilinçli bir karar**: recall **pencere bazlı**
+  (bir pencerenin en az bir saati yakalandıysa "bulundu" sayılır) tanımlandı,
+  saat bazlı değil — çünkü iş hedefi "bu olay oldu mu, fark ettik mi"
+  sorusu, "olayın her saatini tek tek yakaladık mı" değil.
+
+**Doğrulama sonucu**: 429.193 log, 6 anomali penceresi (kalıcı). Model 14
+saatlik sıçrama tespit etti. **Precision %57,1** (8/14 doğru), **Recall
+%83,3** (5/6 pencere en az bir saatiyle yakalandı).
+
+**Review notları**:
+- Recall iyi, precision orta. Yanlış pozitiflerin (6 tanesi) büyük kısmı
+  muhtemelen gerçek pencerelerin hemen öncesi/sonrasındaki geçiş saatleri —
+  `IidSpikeEstimator` sıçramaya giriş/çıkışı da "anormal" sayıyor, ama ground
+  truth penceresi anomalinin tam süresiyle sınırlı. Bu, pencere
+  tanımının biraz dar olabileceğini düşündürüyor, test edilmedi.
+- **Ground truth'un hiç kalıcı olmaması** (29 Eylül'den beri) önemli bir
+  boşluktu — bu blok olmasaydı anomali tespitinin doğruluğu hiçbir zaman
+  ölçülemezdi, sadece "bir şeyler buluyor" denebilirdi. Bu, "doğrulanabilir
+  olmayan bir iddia kanıt değildir" prensibinin somut bir örneği.
+- İki günlük (Cuma bonus + Cumartesi planlı) bir blok oldu — tahmin ettiğimiz
+  "4-6 oturum daha" takviminin bir adımı daha tamamlandı.
 
 ---
 

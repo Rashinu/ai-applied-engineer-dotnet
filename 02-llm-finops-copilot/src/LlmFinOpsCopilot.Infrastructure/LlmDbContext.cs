@@ -9,5 +9,7 @@ public class LlmDbContext : DbContext
     {
     }
 
+    public DbSet<AnomalyWindow> AnomalyWindows { get; set; }
+
     public DbSet<LlmCallLog> LlmCallLogs { get; set; }
 }

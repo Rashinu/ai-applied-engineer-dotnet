@@ -88,6 +88,12 @@ var options = new DbContextOptionsBuilder<LlmDbContext>()
     .Options;
 using var context = new LlmDbContext(options);
 await context.LlmCallLogs.AddRangeAsync(logs);
+
+var anomalyWindowEntities = anomalyWindows
+.Select(w=> new AnomalyWindow { StartTime = w.start, EndTime = w.end })
+.ToList();
+
+await context.AnomalyWindows.AddRangeAsync(anomalyWindowEntities);
 await context.SaveChangesAsync();
 
 Console.WriteLine($"Toplam {logs.Count} log üretildi.");

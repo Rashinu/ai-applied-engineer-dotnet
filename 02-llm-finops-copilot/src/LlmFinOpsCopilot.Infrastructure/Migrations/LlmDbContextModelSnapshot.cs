@@ -22,6 +22,23 @@ namespace LlmFinOpsCopilot.Infrastructure.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("LlmFinOpsCopilotDomain.AnomalyWindow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("EndTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("StartTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AnomalyWindows");
+                });
+
             modelBuilder.Entity("LlmFinOpsCopilotDomain.LlmCallLog", b =>
                 {
                     b.Property<Guid>("Id")

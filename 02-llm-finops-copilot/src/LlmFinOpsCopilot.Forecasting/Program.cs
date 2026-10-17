@@ -85,6 +85,59 @@ for (int w = 0; w < windowCount; w++)
 Console.WriteLine($"Ortalama MAPE: {mapes.Average():F2}%");
 Console.WriteLine($"En iyi: {mapes.Min():F2}%  En kötü: {mapes.Max():F2}%");
 
+var allInputs = hourly.Select(point => new CostInput { Cost = (float)point.Cost }).ToList();
+var allData = mlContext.Data.LoadFromEnumerable(allInputs);
+var finalPipeline = mlContext.Transforms.DetectIidSpike(
+    outputColumnName: nameof(SpikeResult.Prediction),
+    inputColumnName: nameof(CostInput.Cost),
+    confidence: 95.0,
+    pvalueHistoryLength: 168
+);
+
+var finalModel = finalPipeline.Fit(allData);
+var transformedData = finalModel.Transform(allData);
+var predictions = mlContext.Data.CreateEnumerable<SpikeResult>(transformedData, reuseRowObject: false).ToList();
+var spikePoints = predictions
+    .Select((result, index) => new { result.Cost, result.Prediction, Index = index })
+    .Where(x => x.Prediction[0] == 1)
+    .Select(x => new { Timestamp = hourly[x.Index].Timestamp, Cost = x.Cost })
+    .ToList();
+foreach (var spike in spikePoints)
+{
+    Console.WriteLine($"  {spike.Timestamp:dd.MM HH:mm}  maliyet: {spike.Cost:F2}");
+}   
+
+var windows = await db.AnomalyWindows.ToListAsync();
+int truePositives = 0;
+foreach (var spike in spikePoints)
+{
+    if (windows.Any(w => spike.Timestamp >= w.StartTime && spike.Timestamp <= w.EndTime))
+    {
+        truePositives++;
+    }
+}
+
+double precision = spikePoints.Count == 0 ? 0 : (double)truePositives / spikePoints.Count * 100;
+
+int windowsCaught = 0;
+foreach (var window in windows)
+{
+    if (spikePoints.Any(spike => spike.Timestamp >= window.StartTime && spike.Timestamp <= window.EndTime))
+    {
+        windowsCaught++;
+    }
+}
+double recall = windows.Count == 0 ? 0 : (double)windowsCaught / windows.Count * 100;
+
+Console.WriteLine($"Precision: {precision:F2}%  Recall: {recall:F2}%");
+Console.WriteLine($"Recall: {recall:F2}%  True Positives: {truePositives}  Windows Caught: {windowsCaught}  Total Windows: {windows.Count}  Total Spikes: {spikePoints.Count}");
+
+
+public class SpikeResult
+{
+    public float Cost { get; set; }
+    public double[] Prediction { get; set; } = [];
+}
 public class CostInput
 {
     public float Cost { get; set; }

@@ -27,6 +27,7 @@ anomali skoru, küme büyüklüğü) referans vermeden öneri üretemiyor.
 | 2 (tamamlandı) + 3 | 2026-09-29 | Salı 19:30-21:00+ (blok uzadı — anomali enjeksiyonu + DB entegrasyonu tek oturumda) |
 | 4 | 2026-10-03 | Cumartesi (planlı blok) — ML.NET SSA pipeline + baseline MAPE |
 | 7 | 2026-10-17 | Cumartesi (planda Salı'ydı, bonus Cuma oturumuyla başlayıp Cumartesi'de bitti) — anomali tespiti: IidSpike + ground truth persistance + precision/recall |
+| 8-9 (kısmi) | 2026-10-19 | Pazartesi (planda Pazar'dı, taşındı) — embedding + K-Means kümeleme: çekirdek pipeline bitti, örnek prompt gösterimi Çarşamba'ya bırakıldı |
 
 ---
 
@@ -515,6 +516,81 @@ saatlik sıçrama tespit etti. **Precision %57,1** (8/14 doğru), **Recall
   olmayan bir iddia kanıt değildir" prensibinin somut bir örneği.
 - İki günlük (Cuma bonus + Cumartesi planlı) bir blok oldu — tahmin ettiğimiz
   "4-6 oturum daha" takviminin bir adımı daha tamamlandı.
+
+---
+
+## Blok 8-9 (kısmi) — Embedding + K-Means kümeleme
+
+- **Yap**: `LlmFinOpsCopilot.Clustering` projesi; benzersiz prompt'ları
+  Ollama (`nomic-embed-text`) ile embedding'e çevirmek; ML.NET K-Means ile
+  benzer prompt'ları kümelemek — "hangi istekler tekrar tekrar soruluyor"
+  (cache fırsatı) sorusunun temeli.
+- **Neden**: Forecasting "ne kadar harcanıyor", anomali tespiti "ne zaman
+  anormal" sorularına cevap veriyordu; kümeleme "neden/nereye harcanıyor,
+  tekrar eden ne var" sorusuna cevap veriyor — üçü birlikte guarded LLM
+  katmanının referans alacağı üç kanıt kaynağı.
+- **Doğrulama**: Küme sayıları makul dağılmalı (tek bir dev kümeye
+  toplanmamalı), embedding boyutu modelin beklenen boyutuyla (768) eşleşmeli.
+- **Claude'a gel**: Aspire'sız Ollama bağlantısı kurmak (Proje 1'den farklı,
+  doğrudan container), doğru NuGet paketini bulmak (`Microsoft.Extensions.
+  AI.Ollama` diye bir paket yokmuş, gerçek paket `OllamaSharp`), K-Means
+  API'sini doğrulamak.
+
+**Durum**: 🔶 Kısmi tamamlandı (2026-10-19) — çekirdek pipeline (embedding +
+kümeleme) çalışıyor ve doğrulandı; her kümedeki örnek prompt'ları yazdırma
+(kümeleme sonucunu somutlaştıran küçük bir ek) Çarşamba'ya (guarded LLM
+bloğuyla aynı oturuma) bırakıldı.
+
+**Yapılanlar**:
+- Ayrı bir Ollama container'ı (`llmfinops-ollama`, port 11435, Proje 1'den
+  bağımsız) Docker ile başlatıldı, `nomic-embed-text` modeli indirildi.
+- Madde 0: `Microsoft.Extensions.AI.Ollama` adında bir paket **yokmuş**
+  (tahmin yanlış çıktı, baştan doğru paket arandı) — gerçek paket
+  `OllamaSharp` (5.5.0), `OllamaApiClient` sınıfı doğrudan
+  `IEmbeddingGenerator<string, Embedding<float>>` arayüzünü uyguluyor
+  (reflection ile doğrulandı), Aspire'a ihtiyaç yok.
+- `mlContext.Clustering.Trainers.KMeans(...)`'in gerçek imzası da reflection
+  ile doğrulandı (`ClusteringTrainers` katalogu üzerinden, `featureColumnName`
+  + `numberOfClusters`).
+- Kullanıcı, kodu tek seferde (ara adım adım değil) yazdı — sonucunda
+  birikmiş çok sayıda hata çıktı: yanlış DbContext sınıf adı
+  (`FinOpsDbContext`), kırık ifade zinciri (`;` sonra `.UseNpgsql`, bu
+  projede tekrar eden bir hata deseni), yanlış connection string (port/DB
+  adı), yazım hatası (`LlmCallogs`), var olmayan bir sınıf
+  (`OllamaEmbeddingGenerator`) ve yanlış model adı (embedding yerine sohbet
+  modeli `llama2-7b`), var olmayan bir metod adı (`GenerateEmbeddingAsync`
+  yerine `GenerateVectorAsync`), ve prompt bilgisini kaybeden bir veri yapısı.
+  Hepsi tek seferde, Claude tarafından yeniden yazılıp build+run ile
+  doğrulandı — kullanıcının isteği üzerine (birikmiş hata sayısı fazlaydı,
+  tek tek düzeltmek yerine düzeltilmiş hali görüp farkı incelemeyi tercih
+  etti).
+- K-Means pipeline'ına kullanıcı kendi inisiyatifiyle `NormalizeMinMax` ve
+  (gereksiz olan, sonradan kaldırılan) `MapValueToKey("Prompt")` adımlarını
+  eklemişti — `NormalizeMinMax` makul bir ek (embedding vektörlerini
+  kümelemeden önce normalize etmek iyi bir pratik), `MapValueToKey` kümeleme
+  bağlamında anlamsızdı, kaldırıldı.
+
+**Doğrulama sonucu**: 99 benzersiz prompt bulundu (429K satırlık veride),
+her biri 768 boyutlu embedding'e çevrildi, K=10 ile kümelendiğinde dağılım
+4-23 prompt/küme arası — tek bir dev kümeye toplanmadı (sentetik
+prompt'ların ``"This is a sample prompt {N}"`` kalıbına rağmen bir miktar
+ayrışma yakalanmış).
+
+**Review notları**:
+- Kullanıcının "çok fazla hazır fonksiyon var" gözlemi üzerine
+  `LoadFromEnumerable`/`CreateEnumerable` çiftinin bu projede **üçüncü** kez
+  (forecasting, anomali tespiti, şimdi kümeleme) aynı şekilde kullanıldığı
+  gösterildi — yeni bir kavram değil, aynı iki kavramın tekrarı; bu,
+  "ML.NET geniş ama senin öğrendiğin çekirdek örüntü sınırlı" mesajını
+  somutlaştırdı.
+- Kullanıcı bu blokta "kod yazımını tam içselleştirmedim ama kavramlar
+  (embedding, kümeleme mantığı, ML.NET girdi/çıktı köprüsü) pekişti" diye
+  kendi değerlendirmesini yaptı — bu, dürüst ve doğru bir öz-değerlendirme;
+  tekrarla sözdiziminin de oturacağı öngörülüyor.
+- Sentetik veri sınırlaması burada da görüldü (Blok 2/4'teki gibi): gerçek
+  dünya prompt çeşitliliği olmadığı için kümeleme sonucu "ilginç" olsa da
+  iş değeri sınırlı — bu proje bir metodoloji/pipeline kanıtı, gerçek bir
+  üretim analizi değil, README'de bu netlik korunmalı.
 
 ---
 

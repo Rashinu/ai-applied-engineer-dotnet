@@ -28,6 +28,7 @@ anomali skoru, küme büyüklüğü) referans vermeden öneri üretemiyor.
 | 4 | 2026-10-03 | Cumartesi (planlı blok) — ML.NET SSA pipeline + baseline MAPE |
 | 7 | 2026-10-17 | Cumartesi (planda Salı'ydı, bonus Cuma oturumuyla başlayıp Cumartesi'de bitti) — anomali tespiti: IidSpike + ground truth persistance + precision/recall |
 | 8-9 (kısmi) | 2026-10-19 | Pazartesi (planda Pazar'dı, taşındı) — embedding + K-Means kümeleme: çekirdek pipeline bitti, örnek prompt gösterimi Çarşamba'ya bırakıldı |
+| 10-12 | 2026-10-24 | Cumartesi (planlı blok) — Guarded LLM: typed structured output + grounding-check, hem geçen hem reddedilen örnekle doğrulandı |
 
 ---
 
@@ -591,6 +592,84 @@ ayrışma yakalanmış).
   dünya prompt çeşitliliği olmadığı için kümeleme sonucu "ilginç" olsa da
   iş değeri sınırlı — bu proje bir metodoloji/pipeline kanıtı, gerçek bir
   üretim analizi değil, README'de bu netlik korunmalı.
+
+---
+
+## Blok 10-12 — Guarded LLM: typed structured output + grounding-check
+
+- **Yap**: `LlmFinOpsCopilot.Analyst` projesi; üç modülün (forecasting,
+  anomali, kümeleme) sonuçlarını temsil eden üç basit kanıt sorgusu; bu
+  kanıtları `IChatClient` ile bir LLM'e sunup typed öneri üretmesini
+  isteme; LLM'in verdiği `EvidenceValue`'yu gerçek kanıtla karşılaştırıp
+  kanıtsız/uydurma değerleri reddeden bir grounding-check.
+- **Neden**: Bu, projenin asıl farklılaştırıcı iddiası — "ChatGPT'ye sor"
+  seviyesinden ayıran şey, LLM'in **kanıtsız konuşamaması**.
+- **Doğrulama**: Hem geçen (grounded) hem reddedilen (halüsinasyon)
+  senaryoyu canlı görmek.
+- **Claude'a gel**: Yanlış API kullanımı (var olmayan bir SDK'nın
+  tipleri), ham yanıtı inceleyip neden boş/eksik geldiğini teşhis etmek,
+  prompt mühendisliği (sayısal karışıklık sorunu).
+
+**Durum**: ✅ Review edildi (2026-10-24)
+
+**Yapılanlar**:
+- Üç kanıt sorgusu (Forecasting/anomali/kümeleme modüllerini yeniden
+  çalıştırmadan, onların temsilini basit LINQ sorgularıyla üreten):
+  trend yüzdesi (son 7 gün vs önceki 7 gün maliyet, `latestTimestamp`
+  verideki en son zaman olarak alınarak — gerçek `DateTime.UtcNow` ile
+  karşılaştırmak boş aralıklara yol açardı), `AnomalyWindows` tablosundaki
+  toplam pencere sayısı (Blok 7'de kalıcı hale getirdiğimiz veri burada
+  işe yaradı), en sık tekrar eden prompt (`GroupBy`+`Count`+
+  `OrderByDescending`).
+- `AnalystRecommendation` typed sonuç sınıfı (`Recommendation`,
+  `EvidenceType`, `EvidenceValue`) — Proje 1'deki
+  `ProductValidationResult` deseninin tekrarı.
+- İlk denemede kullanıcı, projeye hiç eklenmemiş bir SDK'nın API'sini
+  (`GetChatCompletionsAsync`, `ChatCompletionsOptions`, `ChatMessage`,
+  `ChatRole` — muhtemelen Azure OpenAI SDK'sından akılda kalan bir örnek)
+  yazdı; derlenmedi. Doğru API (`GetResponseAsync<T>`, Proje 1'den
+  tanıdık) ile değiştirildi.
+- İlk çalıştırmada sonuç boş geldi (`Recommendation`/`EvidenceType` boş,
+  `EvidenceValue: 0`) — tahmin yürütmeden `response.Text` ile **ham
+  yanıtı** incelendi: model yalnızca `{"evidenceValue": 4481}` üretmiş,
+  diğer iki alanı atlamış. Prompt'a üç alanın da **zorunlu** olduğu
+  açıkça yazılınca (alan adları tek tek belirtilerek) model üçünü de
+  doldurmaya başladı.
+- **Grounding-check**: `EvidenceType`'a göre `switch` ifadesiyle,
+  `EvidenceValue`'nun ilgili gerçek sayıya (küçük bir tolerans payıyla,
+  `< 0.5`) eşit olup olmadığı kontrol edildi. Eşit değilse "REDDEDİLDİ"
+  mesajı veriliyor.
+- **Tutarlı bir halüsinasyon bulgusu**: Model, "Trend" kanıtını seçtiğinde
+  defalarca `evidenceValue: 7` döndürdü — gerçek değer %0,91 iken.
+  Sebep teşhis edildi: prompt'ta "**Son 7 günde**... önceki **7** güne
+  göre" ifadesi geçiyordu, model muhtemelen bu **7** sayısına
+  takılıp trend yüzdesi yerine onu yazıyordu. "7 gün" ifadeleri "geçen
+  hafta"/"önceki hafta" ile değiştirilince (sayısal karışıklığı ortadan
+  kaldırarak) model doğru değeri (`0.91`) üretmeye başladı.
+
+**Doğrulama sonucu**: Prompt düzeltmesinden önce iki ayrı çalıştırmada
+tutarlı şekilde `GROUNDING-CHECK: BAŞARISIZ` (model `evidenceValue: 7`
+uydurdu, gerçek değer 0,91 idi) — mekanizma bunu doğru reddetti. Düzeltme
+sonrası `GROUNDING-CHECK: GEÇTİ` (`evidenceValue: 0.91`, gerçek trend
+değeriyle birebir eşleşti).
+
+**Review notları**:
+- Bu blok, projenin iddiasını **canlı olarak** kanıtladı: sistem sadece
+  "bazen doğru çalışıyor" değil, "yanlış olduğunda bunu tespit edip
+  reddediyor" — ikisini de gözlemledik, ikisi de doğru davrandı.
+- Halüsinasyonun kök sebebi (prompt'taki tekrar eden "7" sayısı) ilginç
+  bir ders: LLM'e kanıt sunarken, kanıtın **kendisiyle çakışabilecek**
+  başka sayılar (burada zaman penceresinin uzunluğu) prompt'ta
+  bulunmamalı — model bunları birbirine karıştırabiliyor. Bu, prompt
+  mühendisliğinde "alakasız sayısal gürültüyü azalt" diye genellenebilecek
+  bir prensip.
+- Küçük model (3B) davranışı tutarsız — bazen tüm alanları dolduruyor
+  bazen atlıyor, aynı prompt'la bile. Bu, Proje 1'in risk maddelerinden
+  birinin (küçük modellerde bozuk/eksik yapılandırılmış çıktı riski) somut
+  bir doğrulanması.
+- Grounding-check'in toleransı (`< 0.5`) elle seçildi, farklı toleranslarla
+  test edilmedi — küçük bir dürüstlük notu, ileride istenirse
+  genişletilebilir.
 
 ---
 

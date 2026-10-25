@@ -24,7 +24,7 @@ anlayarak, mülakatta her satırını açıklayabilecek şekilde bitirmek.
 | # | Proje | Açıklama | Durum |
 |---|-------|----------|-------|
 | 01 | [Marketplace AI Regulation Agent](./01-marketplace-ai-regulation-agent/) | Pazar yeri ürünlerini asenkron denetleyen AI ajanı (.NET Aspire, MassTransit, pgvector, Ollama) | ✅ Tamamlandı — Gün 1-7, uçtan uca çalışan gerçek AI kararı sistemi + sorgu endpoint'leri + Scalar API dokümantasyonu ([süreç günlüğü](./01-marketplace-ai-regulation-agent/PROGRESS.md)) |
-| 02 | [LLM FinOps Copiloti](./02-llm-finops-copilot/) | LLM kullanım loglarından maliyet tahmini yapan, maliyet sıçramalarını yakalayan ve kanıta dayalı (grounded) öneriler üreten analiz servisi (ML.NET zaman serisi/anomali tespiti + embedding kümeleme + guarded LLM) | 🚧 Geliştiriliyor — Blok 1-4, 7, 8-9 (kısmi), 10-12 ✅: forecasting, anomali tespiti, kümeleme ve guarded LLM (typed output + grounding-check, canlı halüsinasyon tespiti ile doğrulandı) çalışıyor, Minimal API sırada ([süreç günlüğü](./02-llm-finops-copilot/PROGRESS.md)) |
+| 02 | [LLM FinOps Copiloti](./02-llm-finops-copilot/) | LLM kullanım loglarından maliyet tahmini yapan, maliyet sıçramalarını yakalayan ve kanıta dayalı (grounded) öneriler üreten analiz servisi (ML.NET zaman serisi/anomali tespiti + embedding kümeleme + guarded LLM) | ✅ Faz 1 tamamlandı — forecasting, anomali tespiti, kümeleme, guarded LLM (typed output + grounding-check) ve hepsini bağlayan Minimal API (`GET /insights`) uçtan uca çalışıyor; kapanış (README cilası/LinkedIn) kısa bir ek oturuma kaldı ([süreç günlüğü](./02-llm-finops-copilot/PROGRESS.md)) |
 
 ## Neden bu repo var?
 

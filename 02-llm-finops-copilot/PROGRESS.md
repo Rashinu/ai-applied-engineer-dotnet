@@ -29,6 +29,7 @@ anomali skoru, küme büyüklüğü) referans vermeden öneri üretemiyor.
 | 7 | 2026-10-17 | Cumartesi (planda Salı'ydı, bonus Cuma oturumuyla başlayıp Cumartesi'de bitti) — anomali tespiti: IidSpike + ground truth persistance + precision/recall |
 | 8-9 (kısmi) | 2026-10-19 | Pazartesi (planda Pazar'dı, taşındı) — embedding + K-Means kümeleme: çekirdek pipeline bitti, örnek prompt gösterimi Çarşamba'ya bırakıldı |
 | 10-12 | 2026-10-24 | Cumartesi (planlı blok) — Guarded LLM: typed structured output + grounding-check, hem geçen hem reddedilen örnekle doğrulandı |
+| 13-14 | 2026-10-25 | Pazar (planlı blok) — Minimal API: tek `GET /insights` endpoint'i, uçtan uca test edildi. Faz 1'in beş büyük adımı tamamlandı; kapanış (README/LinkedIn) gelecek haftaya bırakıldı |
 
 ---
 
@@ -670,6 +671,71 @@ değeriyle birebir eşleşti).
 - Grounding-check'in toleransı (`< 0.5`) elle seçildi, farklı toleranslarla
   test edilmedi — küçük bir dürüstlük notu, ileride istenirse
   genişletilebilir.
+
+---
+
+## Blok 13-14 — Minimal API: üç modülü tek endpoint'te orkestre etmek
+
+- **Yap**: `LlmFinOpsCopilot.Api` projesi; `Analyst`'teki kanıt sorguları +
+  guarded LLM çağrısı + grounding-check mantığını, tek bir `GET /insights`
+  endpoint'inin içine taşımak.
+- **Neden**: Buraya kadarki her modül, sadece terminalden çalıştırılabilen
+  bir konsol uygulamasıydı — yalnızca kod'a erişimi olan biri kullanabilirdi.
+  API, aynı mantığı HTTP üzerinden **herhangi bir istemciye** (dashboard,
+  başka bir servis, `curl`) açıyor.
+- **Doğrulama**: `/insights`'a gerçek bir istek atıp uçtan uca (DB sorgusu →
+  LLM çağrısı → grounding-check → JSON yanıt) çalıştığını görmek.
+- **Claude'a gel**: Minimal API mekaniği (DI ile `AddDbContext` + endpoint
+  parametresi), isim çakışması hatası, GET/POST ayrımı kavramı.
+
+**Durum**: ✅ Review edildi (2026-10-25) — **Faz 1'in beş büyük adımı da
+tamamlandı** (veri üretici, forecasting, anomali tespiti, kümeleme, guarded
+LLM, hepsini bağlayan API). Kapanış (README cilası, LinkedIn taslağı) bilinçli
+olarak gelecek haftaya bırakıldı.
+
+**Yapılanlar**:
+- `dotnet new web` ile (console değil) proje oluşturuldu — `WebApplication.
+  CreateBuilder`, Proje 1'deki `Api` projesiyle aynı şablon.
+- `builder.Services.AddDbContext<LlmDbContext>(...)` ile DI kaydı;
+  `LlmDbContext db` endpoint parametresi olarak otomatik enjekte ediliyor
+  (Proje 1'deki `POST /products`'taki aynı desen).
+- **Hata**: `app.MapGet("/insights", async (LlmDbContext db, IChatClient
+  chatClient) => {...})` yazılıp, lambda'nın **içinde** de
+  `IChatClient chatClient = new OllamaApiClient(...)` tanımlanmıştı — aynı
+  isimde hem parametre hem yerel değişken, `CS0136` hatası. Sebep: `db`
+  gibi `chatClient`'ın da DI ile geleceği varsayılmış, ama `IChatClient`
+  hiç DI'a kaydedilmemişti. Çözüm: parametre listesinden çıkarılıp, elle
+  oluşturma (console projelerindeki gibi) korundu.
+- Prompt ve `AnalystRecommendation` sınıfı, `Analyst` projesinden **elle
+  kopyalandı** (bilinçli kod tekrarı kararı, ortak kütüphaneye çıkarma
+  zaman kısıtı nedeniyle yapılmadı).
+- `Results.Ok(new { Trend, AnomalyCount, TopPrompt, Recommendation,
+  EvidenceType, EvidenceValue, IsGrounded })` ile tüm kanıtlar + LLM
+  önerisi + grounding sonucu tek bir JSON yanıtında birleştirildi.
+
+**Doğrulama sonucu**: `curl http://localhost:5107/insights` →
+```json
+{"trend":0.91,"anomalyCount":6,"mostFrequentPrompt":"This is a sample prompt 55",
+ "mostFrequentPromptCount":4481,"recommendation":"...","evidenceType":"Trend",
+ "evidenceValue":0.91,"isGrounded":true}
+```
+Uçtan uca çalıştı: DB sorguları → LLM çağrısı → grounding-check (`true`) →
+JSON yanıt.
+
+**Review notları**:
+- Kullanıcı bu blokta haklı bir gözlem yaptı: "aynı şeyi yazdık, sadece
+  taşıdık" — doğru, bu blok yeni bir **zeka** eklemedi (Guarded LLM zaten
+  çalışıyordu), kattığı şey **erişilebilirlik**: konsol uygulamasından HTTP
+  servisine geçiş. Bu ayrımı (mantık vs. arayüz) açıkça konuşmak, "her
+  blok yeni bir şey öğretmeli" beklentisini gerçekçi tutmak için önemliydi.
+- GET/POST ayrımı tekrar soruldu (Proje 1'de de benzer bir soru olmuştu) —
+  bu sefer "client veri gönderiyor mu / sadece istiyor mu" çerçevesiyle,
+  `POST /products` (Proje 1) ile `GET /insights` (bu proje) karşılaştırılarak
+  somutlaştırıldı.
+- LINQ zincirlerini okuma konusunda genel bir yöntem (her `var`'ı "nereden
+  başlıyorum / ne filtreliyorum / sonunda ne kalıyor" üç sorusuyla ayrı ayrı
+  okumak) ilk kez açıkça bir **çerçeve** olarak verildi — önceki bloklarda
+  hep örnek bazlı açıklanmıştı, bu sefer genellenebilir bir araç olarak.
 
 ---
 

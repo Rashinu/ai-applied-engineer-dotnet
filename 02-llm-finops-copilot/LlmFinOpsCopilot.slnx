@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/LlmFinOpsCopilot.Analyst/LlmFinOpsCopilot.Analyst.csproj" />
+    <Project Path="src/LlmFinOpsCopilot.Api/LlmFinOpsCopilot.Api.csproj" />
     <Project Path="src/LlmFinOpsCopilot.Clustering/LlmFinOpsCopilot.Clustering.csproj" />
     <Project Path="src/LlmFinOpsCopilot.DataGenerator/LlmFinOpsCopilot.DataGenerator.csproj" />
     <Project Path="src/LlmFinOpsCopilot.Forecasting/LlmFinOpsCopilot.Forecasting.csproj" />

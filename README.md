@@ -24,6 +24,7 @@ anlayarak, mülakatta her satırını açıklayabilecek şekilde bitirmek.
 | # | Proje | Açıklama | Durum |
 |---|-------|----------|-------|
 | 01 | [Marketplace AI Regulation Agent](./01-marketplace-ai-regulation-agent/) | Pazar yeri ürünlerini asenkron denetleyen AI ajanı (.NET Aspire, MassTransit, pgvector, Ollama) | ✅ Tamamlandı — Gün 1-7, uçtan uca çalışan gerçek AI kararı sistemi + sorgu endpoint'leri + Scalar API dokümantasyonu ([süreç günlüğü](./01-marketplace-ai-regulation-agent/PROGRESS.md)) |
+| 03 | [Release-Risk Çok-Ajanlı Analist](./03-release-risk-multi-agent-analyst/) | Bir yazılım release'inin risk seviyesini birden fazla uzman ajanın bulgusunu birleştirerek değerlendiren sistem (Microsoft Agent Framework + MCP — ilk kez bu projede) | 🚧 Geliştiriliyor — Faz 1 ✅, Faz 2 kısmi (DbContext/migration bitti, veri üretici sırada) ([süreç günlüğü](./03-release-risk-multi-agent-analyst/PROGRESS.md)) |
 | 02 | [LLM FinOps Copiloti](./02-llm-finops-copilot/) | LLM kullanım loglarından maliyet tahmini yapan, maliyet sıçramalarını yakalayan ve kanıta dayalı (grounded) öneriler üreten analiz servisi (ML.NET zaman serisi/anomali tespiti + embedding kümeleme + guarded LLM) | ✅ Tamamlandı — forecasting, anomali tespiti, kümeleme, guarded LLM (typed output + grounding-check, canlı halüsinasyon reddi ile doğrulandı) ve hepsini bağlayan Minimal API uçtan uca çalışıyor; Faz 2 (dashboard/CI) bilinçli olarak kapsam dışı bırakıldı ([süreç günlüğü](./02-llm-finops-copilot/PROGRESS.md)) |
 
 ## Neden bu repo var?

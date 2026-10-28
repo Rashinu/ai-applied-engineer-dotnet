@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ReleaseRiskAnalyst.Domain/ReleaseRiskAnalyst.Domain.csproj" />
+    <Project Path="src/ReleaseRiskAnalyst.Infrastructure/ReleaseRiskAnalyst.Infrastructure.csproj" />
+  </Folder>
+</Solution>

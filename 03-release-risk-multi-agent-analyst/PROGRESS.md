@@ -70,7 +70,7 @@ Doğrulanmamış, ileride dikkat edilecek:
 | Faz | İçerik | Durum |
 |---|---|---|
 | 1 | Proje iskeleti + Madde 0 + Domain entity'leri (`ReleaseSignal`, `ServiceIncidentHistory`) | ✅ |
-| 2 | Infrastructure (DbContext, migration) + sentetik veri üretici | 🔶 Kısmi (DbContext/migration bitti, üretici mantığı kaldı) |
+| 2 | Infrastructure (DbContext, migration) + sentetik veri üretici | ✅ |
 | 3 | MCP sunucusu: `get_release_signals`, `get_service_incident_history` araçları | ⬜ |
 | 4 | Agent Framework'e giriş: tek ajan (Kod Risk Ajanı) + MCP aracı çağırma | ⬜ |
 | 5 | Kalan iki uzman ajan (Test Risk, Geçmiş Risk) | ⬜ |
@@ -137,15 +137,15 @@ edilir.
 
 ---
 
-## Faz 2 (kısmi) — DbContext + migration
+## Faz 2 — DbContext + migration + sentetik veri üretici
 
 - **Yap**: `ReleaseRiskAnalyst.Infrastructure` projesi, `ReleaseRiskDbContext`,
   design-time factory, ilk migration, ayrı bir Postgres container'ı.
-- **Durum**: 🔶 Kısmi — bu kısım Claude tarafından doğrudan yapıldı
-  (mekanik, üçüncü kez tekrarlanan desen, düşük öğrenme değeri — Proje
-  1/2'deki aynı istisna). **Sentetik veri üretici mantığı bir sonraki
-  oturuma bırakıldı** — bu, asıl düşünce gerektiren kısım, acele
-  edilmeyecek.
+- **Durum**: ✅ Review edildi (2026-10-31). DbContext/migration kısmı
+  Claude tarafından doğrudan yapıldı (mekanik, üçüncü kez tekrarlanan
+  desen, düşük öğrenme değeri — Proje 1/2'deki aynı istisna). Sentetik veri
+  üretici mantığı (asıl düşünce gerektiren kısım) **kullanıcı tarafından**
+  yazıldı, 28 Ekim'de ertelenmişti, bu oturumda bitirildi.
 
 **Yapılanlar**:
 - `ReleaseRiskDbContext : DbContext` — `DbSet<ReleaseSignal>`,
@@ -170,6 +170,73 @@ edilir.
   karşılaşılmamış, bu projeye özgü (kullanıcının kendi isimlendirme
   tercihinden kaynaklanan) yeni bir ders. Gelecekte `Id` dışı bir isim
   seçerse, `HasKey` ile açıkça belirtmesi gerektiğini bilecek.
+
+### Sentetik veri üretici (31 Ekim 2026)
+
+**Yapılanlar**:
+- `ReleaseRiskAnalyst.DataGenerator` konsol projesi.
+- **Risk skoru fonksiyonu** (`CalculateReleaseRisk`) — kullanıcı tarafından
+  **ilk denemede hatasız** yazıldı: dört sinyali (`linesChanged`,
+  `reviewerCount`, `failedCiRunCount`, `testCoverage`) 0-1 aralığına
+  normalize edip (tavan/clamp ile), yön farkını (`1 - normalized` ile
+  "arttıkça azaltan" sinyaller için), ağırıklı toplamla (0.4/0.3/0.2/0.1,
+  toplamı 1) tek bir risk skoruna indirgiyor. Bu, klasik bir "ağırlıklı
+  toplam skorlama" (weighted sum scoring) algoritması — Proje 2'deki yeni
+  kavramların aksine (ki hepsi birkaç hata turu gerektirmişti), bu sefer
+  hiç hata çıkmadı. Önceki iki projede kavramsal bir yeniliğin ilk
+  denemede hatasız yazılması **ilk kez** oldu.
+- Üretim döngüsünde (kullanıcı yazdı, Claude review etti ve düzeltti)
+  dört gerçek hata çıktı, hepsi mekanik/sözdizimsel (kavramsal değil):
+  1. Eksik `using ReleaseRiskAnalyst.Domain;`.
+  2. `new ReleaseSignal{}` sonunda eksik noktalı virgül, **ve** nesne hiç
+     doldurulmamış.
+  3. `release.Add(release)` — tekil nesne (`release`) üzerinde `.Add()`
+     çağrılmaya çalışılmış, doğrusu `releases.Add(release)` (çoğul liste).
+  4. **En kritik hata**: `release` nesnesi boş oluşturulduktan sonra,
+     `CalculateReleaseRisk`'e **tamamen ayrı, yeni üretilmiş rastgele
+     sayılar** veriliyordu — yani risk skoru, `release`'in kendi
+     alanlarından değil, ondan kopuk bir "paralel gerçeklik"ten
+     hesaplanıyordu. Çözüm: `release` tüm alanlarıyla (object initializer
+     ile, tek seferde) dolduruldu, risk skoru hesaplanırken
+     `release.LinesChanged` gibi **o nesnenin kendi alanları** kullanıldı.
+  5. `Severity = Random.Shared.Next(1, 6)` — enum'a (4 değerli,
+     `IncidentSeverity`) doğrudan 1-5 arası bir `int` atanmaya çalışılmış
+     (tip uyumsuz + aralık dışı). `severities[]` dizisinden rastgele seçim
+     yapacak şekilde düzeltildi.
+- DB'ye yazma kısmını kullanıcı kendi başına, Proje 2'deki
+  `DbContextOptionsBuilder` → `using var db` → `AddRangeAsync` →
+  `SaveChangesAsync` desenini tekrarlayarak, **hatasız** yazdı. Kendi
+  inisiyatifiyle `await db.Database.EnsureCreatedAsync();` eklendi —
+  migration'larla birlikte kullanılması EF Core'da genelde önerilmeyen bir
+  karışım (zararsız şu an çünkü tablolar zaten migration'la var, ama
+  gelecekte yeni bir migration eklenirse gözden geçirilmeli).
+
+**Doğrulama sonucu**: `dotnet run` → `Toplam 300 release, 182 incident
+üretildi.` / `Veriler veritabanına kaydedildi.` Postgres'te
+`SELECT COUNT(*)` ile doğrulandı: 300 `ReleaseSignals`, 182
+`ServiceIncidentHistories`. ~%54-61 incident oranı (farklı çalıştırmalarda
+değişiyor, rastgelelik nedeniyle) — gerçekçi bir dağılımdan biraz yüksek,
+muhtemelen `linesChanged`'in 0-2000 gibi geniş bir aralıktan rastgele
+seçilmesi normalize edilince ortalamayı yukarı çekiyor. İnce ayar olarak
+not edildi, bugün düzeltilmedi.
+
+**Review notları**:
+- Bu oturumun en dikkat çekici bulgusu: **yeni bir algoritmik kavramın ilk
+  denemede hatasız yazılması.** Önceki tüm "yeni kavram" girişlerinde
+  (forecasting, anomali tespiti, embedding, guarded LLM, MCP paket
+  doğrulama vb.) en az bir-iki hata turu olmuştu. Risk skoru fonksiyonunda
+  hiç olmadı — kalan hatalar hep "zaten bilinen" bir deseni (nesne
+  doldurma, liste ekleme, enum kullanımı) yanlış uygulamaktan kaynaklandı,
+  "anlamadım" değil "dikkatsizlik" kaynaklıydı. Bu ayrım, kullanıcıya
+  "bugün hızlı bitti, yeterince çalışmadım" diye düşündüğü bir anda somut
+  kanıt olarak gösterildi.
+- Kullanıcı yine (28 Ekim'deki gibi) "neden bu kadar hızlı bitti, üstüne
+  koyalım mı" diye sorguladı. Bu sefer net bir "hayır" cevabı verildi,
+  gerekçeyle: Faz 2 doğal bir durma noktası, Faz 3 (MCP) tamamen yeni bir
+  alan, "hızlı bitti" hissinin peşinden acele başlamak yerine ayrı, istekli
+  bir oturuma bırakılmalı. Kullanıcı bunu kabul etti ve **Faz 3'ü özellikle
+  yavaş ve detaylı ele almayı** kendi isteğiyle talep etti — bu, bir
+  sonraki oturum için açık bir yönerge.
 
 ---
 

@@ -71,7 +71,7 @@ Doğrulanmamış, ileride dikkat edilecek:
 |---|---|---|
 | 1 | Proje iskeleti + Madde 0 + Domain entity'leri (`ReleaseSignal`, `ServiceIncidentHistory`) | ✅ |
 | 2 | Infrastructure (DbContext, migration) + sentetik veri üretici | ✅ |
-| 3 | MCP sunucusu: `get_release_signals`, `get_service_incident_history` araçları | ⬜ |
+| 3 | MCP sunucusu: `get_release_signals`, `get_service_incident_history` araçları | ✅ |
 | 4 | Agent Framework'e giriş: tek ajan (Kod Risk Ajanı) + MCP aracı çağırma | ⬜ |
 | 5 | Kalan iki uzman ajan (Test Risk, Geçmiş Risk) | ⬜ |
 | 6 | Orkestratör ajan: üç bulguyu toplayıp kanıta dayalı karar | ⬜ |
@@ -237,6 +237,82 @@ not edildi, bugün düzeltilmedi.
   bir oturuma bırakılmalı. Kullanıcı bunu kabul etti ve **Faz 3'ü özellikle
   yavaş ve detaylı ele almayı** kendi isteğiyle talep etti — bu, bir
   sonraki oturum için açık bir yönerge.
+
+---
+
+## Faz 3 — MCP sunucusu (6 Kasım 2026)
+
+- **Yap**: `ReleaseRiskAnalyst.McpServer` konsol projesi; MCP C# SDK'sının
+  gerçek kullanım şeklini (attribute'lar, host/DI kurulumu) reflection ile
+  doğrula; `ReleaseRiskTools` sınıfında iki tool (`get_release_signals`,
+  `get_service_incident_history`); MCP Inspector ile uçtan uca doğrulama.
+- **Durum**: ✅ Review edildi (2026-11-06). Proje iskeleti (csproj, paket
+  referansları, `.slnx` kaydı, `Program.cs`'teki DI/host kurulumu) Claude
+  tarafından yapıldı (konfigürasyon, düşük öğrenme değeri — Proje 1/2/3'ün
+  aynı istisnası). `ReleaseRiskTools.cs`'teki iki tool metodu **kullanıcı
+  tarafından** yazıldı.
+
+**Yapılanlar**:
+- Madde 0 (MCP SDK'sının gerçek API şekli): `ModelContextProtocol` paketi
+  hiç kullanılmamıştı, sadece restore edildiği biliniyordu. Tahmin etmek
+  yerine throwaway bir probe projesinde reflection ile gerçek tipler
+  incelendi: `[McpServerToolType]` (sınıf seviyesi), `[McpServerTool]`
+  (metot seviyesi) attribute'ları `ModelContextProtocol.Core` paketinde
+  bulundu; `IMcpServerBuilder.WithToolsFromAssembly()` /
+  `WithStdioServerTransport()` extension metodları `ModelContextProtocol`
+  paketinde doğrulandı.
+- `Program.cs` (Claude yazdı): `Host.CreateApplicationBuilder` ile genel
+  host kuruluyor, `AddDbContext<ReleaseRiskDbContext>` DI'a kaydediliyor,
+  `AddMcpServer().WithToolsFromAssembly().WithStdioServerTransport()` ile
+  sunucu ayağa kaldırılıyor. Önemli bir detay: stdio transport, protokol
+  mesajlarını stdout üzerinden taşıdığı için varsayılan konsol logger'ı
+  stderr'e yönlendirildi (`LogToStandardErrorThreshold = LogLevel.Trace`)
+  — yoksa loglar protokolü bozardı.
+- `ReleaseRiskTools.cs` (kullanıcı yazdı) — `GetReleaseSignals` ve
+  `GetServiceIncidentHistories`, ikisi de `ReleaseRiskDbContext db`'yi
+  (DI'dan enjekte edilen) ve `string serviceName`'i (ajandan/JSON
+  şemasından gelen gerçek argüman) parametre alıyor, `Where` + `ToListAsync`
+  ile filtreli veri döndürüyor. Yazım sürecinde üç hata turu oldu:
+  1. `GetReleaseSignals` gövdesi ilk başta boştu (`// ???`) — derleme
+     hatası (dönüş tipi olan bir metot her yolda değer döndürmek zorunda).
+  2. `serviceName` normalizasyonu için önce `ToList().ForEach(c => ...
+     Replace(c, '-'))` gibi karakter-karakter bir yaklaşım denendi — somut
+     bir örnekle (`"payment-service"` → `"---------------"`) gösterildi ki
+     bu, string'teki her karakteri sırayla sildiğinden string'i tamamen
+     bozuyor. Kullanıcının asıl niyeti trim+lowercase'miş; `.Trim()` ve
+     `.ToLowerInvariant()`'ın zaten tüm string'i tek çağrıda işleyen hazır
+     metotlar olduğu, karakter bazlı döngüye hiç gerek olmadığı açıklandı.
+  3. `serviceName.Trim.ToLowerInvariant()` — `Trim` bir metot, parantezsiz
+     yazılınca metot grubuna işaret ediyor, üzerine zincirleme
+     yapılamıyor; `Trim()` olarak düzeltildi.
+- **MCP Inspector ile doğrulama** (`npx @modelcontextprotocol/inspector
+  dotnet run --project ...`): sunucu stdio üzerinden bağlandı, her iki
+  tool da `Tools (2)` listesinde göründü (SDK, metot adlarını otomatik
+  `snake_case`'e çevirip JSON şemasına koyuyor: `GetReleaseSignals` →
+  `get_release_signals`). `get_release_signals(serviceName:
+  "payment-service")` ilk denemede doğru, gerçek Postgres verisini
+  döndürdü. `get_service_incident_histories` ilk denemede **boş `[]`**
+  döndü — hata sanıldı, ama Postgres'te `payment-service` için 37 incident
+  olduğu doğrulanınca (bir hata değil, gerçek veri sorunu da değil)
+  sorunun Inspector'daki `serviceName` input alanına hiç yazılmamış
+  olması (gri placeholder metni gerçek değer sanılmış) olduğu anlaşıldı;
+  alana gerçekten yazılınca tool doğru sonucu döndü.
+
+**Doğrulama sonucu**: `dotnet build` (McpServer projesi) — 0 hata. MCP
+Inspector'da her iki tool, gerçek `serviceName` parametresiyle çağrıldığında
+gerçek, Postgres'teki senkron verilerle eşleşen sonuçlar döndü.
+
+**Review notları**:
+- Bu projede ilk kez, "sonuç yanlış görünüyor" durumunda önce veriye
+  (Postgres'e doğrudan `psql` ile bakarak), sonra isteğin gerçek içeriğine
+  (Inspector'ın Protocol panelinden gönderilen `arguments`'a bakarak)
+  gitme sırası izlendi — kod her zaman şüpheli olmak zorunda değil; boş
+  `[]` sonucu bu kez girdi tarafındaki bir eksiklikten kaynaklanıyordu.
+- Kullanıcının MCP kavramını (tool/attribute/DI-parametre ayrımı) oturtması
+  birkaç geçiş gerektirdi (API karşılaştırması, satır satır inceleme,
+  Replace'in gerçek semantiği) — bu, Proje 3'ün ilk kez karşılaşılan yeni
+  bir protokol/kütüphane olmasıyla tutarlı, Proje 1/2'deki ML.NET/embedding
+  kavramlarının ilk oturumlarında da benzer çoklu-geçiş ihtiyacı olmuştu.
 
 ---
 

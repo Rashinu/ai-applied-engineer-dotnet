@@ -3,5 +3,6 @@
     <Project Path="src/ReleaseRiskAnalyst.DataGenerator/ReleaseRiskAnalyst.DataGenerator.csproj" />
     <Project Path="src/ReleaseRiskAnalyst.Domain/ReleaseRiskAnalyst.Domain.csproj" />
     <Project Path="src/ReleaseRiskAnalyst.Infrastructure/ReleaseRiskAnalyst.Infrastructure.csproj" />
+    <Project Path="src/ReleaseRiskAnalyst.McpServer/ReleaseRiskAnalyst.McpServer.csproj" />
   </Folder>
 </Solution>

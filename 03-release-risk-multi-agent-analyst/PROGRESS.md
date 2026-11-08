@@ -72,8 +72,8 @@ Doğrulanmamış, ileride dikkat edilecek:
 | 1 | Proje iskeleti + Madde 0 + Domain entity'leri (`ReleaseSignal`, `ServiceIncidentHistory`) | ✅ |
 | 2 | Infrastructure (DbContext, migration) + sentetik veri üretici | ✅ |
 | 3 | MCP sunucusu: `get_release_signals`, `get_service_incident_history` araçları | ✅ |
-| 4 | Agent Framework'e giriş: tek ajan (Kod Risk Ajanı) + MCP aracı çağırma | ⬜ |
-| 5 | Kalan iki uzman ajan (Test Risk, Geçmiş Risk) | ⬜ |
+| 4 | Agent Framework'e giriş: tek ajan (Kod Risk Ajanı) + MCP aracı çağırma | ✅ |
+| 5 | Kalan iki uzman ajan (Test Risk, Geçmiş Risk) + Faz 4'ten kalan 4 kalite sorunu | ⬜ |
 | 6 | Orkestratör ajan: üç bulguyu toplayıp kanıta dayalı karar | ⬜ |
 | 7 | Minimal API ile dışa açmak | ⬜ |
 | 8 | Kapanış: README + LinkedIn | ⬜ |
@@ -313,6 +313,100 @@ gerçek, Postgres'teki senkron verilerle eşleşen sonuçlar döndü.
   Replace'in gerçek semantiği) — bu, Proje 3'ün ilk kez karşılaşılan yeni
   bir protokol/kütüphane olmasıyla tutarlı, Proje 1/2'deki ML.NET/embedding
   kavramlarının ilk oturumlarında da benzer çoklu-geçiş ihtiyacı olmuştu.
+
+---
+
+## Faz 4 — Agent Framework'e giriş: tek ajan + MCP aracı çağırma (8 Kasım 2026)
+
+- **Yap**: `ReleaseRiskAnalyst.Agents` konsol projesi; `Microsoft.Agents.AI`'ın
+  gerçek kullanım şeklini (ajan kurma, MCP client, tool bağlama, çalıştırma)
+  reflection ile doğrula; tek bir ajan ("Kod Risk Ajanı") kurup MCP
+  sunucusundaki tool'ları gerçekten çağırabildiğini kanıtla.
+- **Durum**: ✅ Review edildi (2026-11-08). Proje iskeleti, MCP client
+  bağlantısı, `IChatClient` kurulumu Claude tarafından yapıldı (konfigürasyon
+  — Faz 1/2/3'ün aynı istisnası). `instructions` metni ve ajanı çalıştırma
+  (session + `RunAsync`) kısmı **kullanıcı tarafından** yazıldı. Ayrı bir
+  Ollama container'ı (`releaserisk-ollama`, port 11436) + `llama3.2:3b`
+  modeli bu proje için sıfırdan kuruldu (Proje 2'nin `llmfinops-ollama`'sı
+  kapanışta kaldırılmıştı).
+
+**Yapılanlar**:
+- Madde 0 (Agent Framework + MCP client API şekli, reflection ile, tahmin
+  yok): `ChatClientAgent : AIAgent` (`Microsoft.Agents.AI`), ctor
+  `(IChatClient, string instructions, string name, string description,
+  IList<AITool> tools, ...)`. MCP tarafında `StdioClientTransport` +
+  `McpClient.CreateAsync(transport)` ile sunucuya bağlanılıyor,
+  `mcpClient.ListToolsAsync()` bir `McpClientTool` listesi dönüyor —
+  **`McpClientTool`, `Microsoft.Extensions.AI.AIFunction`'ın alt sınıfı**,
+  yani MCP'den gelen tool'lar dönüşümsüz doğrudan ajana veriliyor.
+  `agent.RunAsync(string, AgentSession)` bir `AgentResponse` dönüyor,
+  cevap `response.Text`'te.
+- `Program.cs` (Claude yazdı): MCP sunucusuna stdio ile bağlanma, tool
+  listesini çekme, `OllamaApiClient`'ı `IChatClient` olarak kurma.
+- `instructions` + ajanı çalıştırma (kullanıcı yazdı) — süreçte bir hata ve
+  bir API karışıklığı çıktı:
+  1. `AgentMessage` diye var olmayan bir tipi (`ChatMessage` ile karışmış
+     olabilir) kullanmaya çalıştı — reflection'da `RunAsync`'in `string`
+     veya `ChatMessage` kabul ettiği, `AgentMessage` diye bir tip hiç
+     olmadığı gösterilip en basit (`string`) overload'a yönlendirildi.
+  2. İlk denemede hedef servis adı olarak gerçek olmayan `"ServiceA"`
+     yazılmıştı (DataGenerator'ın ürettiği gerçek adlar `payment-service`
+     vb.) — düzeltildi.
+- **İki ayrı gerçek altyapı sorunu çıktı ve çözüldü** (Claude tarafından,
+  altyapı/config niteliğinde):
+  1. `OllamaApiClient`'ın varsayılan `HttpClient.Timeout`'u (100sn),
+     ajan + tool-calling (MCP round-trip dahil) + CPU üzerinde yavaş
+     inference (`llama3.2:3b`, ~6.3 token/sn, GPU yok) kombinasyonu için
+     yetersiz kaldı — `TaskCanceledException`. Önce 5 dakikaya çıkarıldı
+     (`new HttpClient { Timeout = TimeSpan.FromMinutes(5) }` ile
+     `OllamaApiClient`'ın `HttpClient` alan overload'u kullanılarak), ama
+     bu bile yetmedi.
+  2. Kullanıcının prompt'a eklediği "cevabını kısa tut" talimatına model
+     uymadı — Ollama container loglarından doğrulandı: model 1400+ token
+     üretmeye devam edip yine 5 dakikalık timeout'u aştı. **Ders**: küçük
+     (3B) modeller "kısa tut" gibi talimatlara güvenilir şekilde uymuyor;
+     bunu prompt mühendisliğiyle değil, API'nin kendisindeki sert bir
+     üst sınırla zorlamak gerekiyor. Reflection ile
+     `ChatClientAgentRunOptions(ChatOptions chatOptions)` bulundu,
+     `ChatOptions.MaxOutputTokens = 200` ile `agent.RunAsync(message,
+     session, runOptions)` çağrısına sert bir tavan kondu.
+- **Sonuç**: `dotnet run` exit code 0 ile tamamlandı. Ajan gerçekten MCP
+  sunucusuna bağlandı, bir tool çağırdı, **Postgres'teki gerçek veriyi**
+  (Faz 3'te Inspector'da görülen aynı `payment-service` incident
+  kayıtları — `0b5b184b-...`, `165f3922-...`) aldı ve bu veriye dayanan bir
+  metin üretti. Çekirdek mimari hedef (ajan → MCP tool → gerçek DB verisi →
+  ajan cevabı) kanıtlandı.
+
+**Doğrulama sonucu**: `dotnet build` — 0 hata. `dotnet run` — exit code 0,
+gerçek, DB kökenli veri içeren bir cevap üretti.
+
+**Bilinen, Faz 5'e ertelenen 4 kalite sorunu** (kullanıcının kararıyla —
+"faz 5'te bu 4 maddeye de bakalım"):
+1. Ajana şu an MCP sunucusundaki **her iki** tool da veriliyor
+   (`tools: [.. tools]`, hepsi); "Kod Risk Ajanı" beklenen
+   `get_release_signals` yerine `get_service_incident_histories`'i
+   çağırdı. Mimari plana göre (Faz 5-6'da) her uzman ajan sadece kendi
+   tool'unu görmeli.
+2. Cevabın başında anlamsız, ham bir tool-call JSON parçası sızmış
+   (`}; {"name":"generate_risk_report",...}`) — model var olmayan bir
+   tool hayal etmiş gibi görünüyor.
+3. Cevap `MaxOutputTokens: 200` sınırında yarıda kesildi — beklenen bir
+   trade-off, ama daha iyi bir denge (belki 400-500) denenebilir.
+4. Metin Türkçe-İngilizce karışık ve biraz tutarsız — `llama3.2:3b`'nin
+   küçük model sınırı, CPU üzerinde daha da belirginleşiyor.
+
+**Review notları**:
+- Bu faz, önceki fazlardan farklı olarak **iki ayrı gerçek altyapı
+  hatası** (ikisi de timeout kaynaklı, ama kök sebepleri farklı: önce
+  gerçekten yetersiz süre, sonra modelin talimata uymaması) üst üste
+  çıktı — ikisi de Claude tarafından reflection ile doğrulanan gerçek
+  API'lerle (HttpClient overload, ChatClientAgentRunOptions) çözüldü,
+  tahmin yapılmadı.
+- Kullanıcı, düşük kaliteli ama **çalışan** bir sonucu doğru şekilde
+  "bugünün kanıtı yeterli, kalan ince ayarları yarına bırakalım" diye
+  değerlendirdi — her şeyi aynı oturumda mükemmelleştirmeye çalışmak
+  yerine çekirdek kanıtı kabul edip devam etmek, önceki fazlarda da
+  görülen sağlıklı bir karar verme deseni.
 
 ---
 

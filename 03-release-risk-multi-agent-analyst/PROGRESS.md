@@ -410,6 +410,67 @@ gerçek, DB kökenli veri içeren bir cevap üretti.
 
 ---
 
+## Faz 5, Bölüm 1 — Faz 4'ten kalan 4 kalite sorununun giderilmesi (11-14 Kasım 2026)
+
+- **Durum**: ✅ Review edildi (2026-11-14). Not: 11 Kasım'da Docker Desktop,
+  disk alanı yetersizliği nedeniyle kullanıcı tarafından bilerek sıfırlandı
+  (`releaserisk-postgres`/`releaserisk-ollama` container'ları + image'lar
+  silindi) — 14 Kasım'da ikisi de Claude tarafından sıfırdan yeniden
+  kuruldu (Postgres + migration + DataGenerator yeniden çalıştırıldı: 300
+  release/171 incident; Ollama + `llama3.2:3b` yeniden indirildi). Kod
+  tarafında hiçbir kayıp yok, hepsi git'te güvendeydi.
+
+**Yapılanlar — 4 maddenin gerçek çözüm süreci** (birkaç yanlış hipotez ve
+düzeltme turu içeren, dürüstçe kaydedilen bir iterasyon):
+1. **Tool kısıtlama** (Claude yaptı): `tools: [.. tools]` yerine
+   `tools.Where(t => t.Name == "get_release_signals")` — "Kod Risk Ajanı"
+   artık sadece kendi tool'unu görüyor. Bu tek başına yanlış-tool-çağırma
+   sorununu ve JSON sızıntısını byük ölçüde azalttı.
+2. **İlk yanlış hipotez**: Sorunun "model kısa tut talimatına uymuyor"
+   olduğu düşünülüp `instructions`'a "ASLA şemayı tarif etme" gibi bir
+   negatif kural + katı "Risk Seviyesi:/Sebep:" metin formatı eklendi.
+   **İşe yaramadı** — model yine veriyi tarif etti, hatta alakasız Python/
+   pandas kodu üretti. Ayrıca `RunAsync`'teki kullanıcı mesajı ("bir risk
+   raporu, 3-4 cümle") bu yeni katı formatla **çelişiyordu** — iki
+   talimatın birbirini geçersiz kılması muhtemelen durumu kötüleştirdi.
+3. **Gerçek çözüm**: Format zorunluluğunu serbest metin talimatına değil,
+   **API'nin kendisine** bırakmak. `AIAgentExtensions.AsIChatClient(agent,
+   session)` (deneysel/preview API, `#pragma warning disable MAAI001` ile
+   bilerek kullanıldı) ile ajan bir `IChatClient`'a çevrildi, böylece Proje
+   2'deki guarded LLM'de kullanılan `GetResponseAsync<T>` deseni (tipli
+   yapılandırılmış çıktı) buraya da uygulanabildi. `instructions` artık
+   sadece risk MANTIĞINI anlatıyor (hangi sinyal artınca risk artar),
+   çıktı formatını anlatmasına gerek kalmadı.
+4. **İkinci round**: İlk `GetResponseAsync<CodeRiskAssessment>` denemesinde
+   JSON şeması doğru geldi ama içerik bozuktu — `RiskLevel` alanı
+   (`string` tipindeydi) `"eval"` gibi anlamsız bir değer aldı, gerçek
+   "High" yargısı yanlışlıkla `Reason` alanına sızdı. Çözüm: `RiskLevel`'ı
+   `string`'den bir **enum**'a (`Low/Medium/High`) çevirmek — Faz 1'deki
+   `IncidentSeverity` kalıbının tekrarı. Süreçte iki küçük hata daha oldu
+   (kullanıcı tarafından, hızlıca düzeltildi): enum tanımlanıp hiçbir
+   property'ye bağlanmamıştı (yine Faz 1'deki `ProductStatus` hatasının
+   tekrarı), sonra property'ye enum ile **aynı adı** (`RiskLevel`) verildi
+   — nested bir enum için bu CS0102 derleme hatası veriyor (üye adı
+   çakışması); property `Level` olarak yeniden adlandırıldı.
+- **Sonuç**: `{"level":"High","reason":"Lines changed is high (12)...
+  Reviewer count is low (2)... Test coverage is low (60%)... Failed CI run
+  count is high (3)..."}` — geçerli enum değeri, gerçek sayılara dayanan
+  tutarlı bir açıklama, şema sızıntısı yok, kesik cevap yok, dil karışıklığı
+  yok. Faz 4'ten kalan 4 maddenin hepsi pratikte çözüldü.
+
+**Review notları**:
+- Bu bölüm, "önce en olası hipotezi dene, yanılırsan neden yanıldığını
+  anlayıp bir sonrakine geç" döngüsünün iyi bir örneği oldu — negatif
+  prompt kuralları ve katı metin formatı talimatları küçük modellerde
+  güvenilir değil; **tipli yapılandırılmış çıktı (JSON schema zorlaması)**
+  çok daha sağlam bir araç. Bu ders ileriki ajanlara (Test Risk, Geçmiş
+  Risk) doğrudan uygulanabilir.
+- Enum'ı property'ye bağlamayı unutma hatası, Faz 1'de de görülmüştü —
+  artık bu projede **iki kez** tekrarlanan bir desen, kullanıcının
+  gelecekte enum yazarken özellikle dikkat etmesi gereken bir nokta.
+
+---
+
 ## Roller
 
 - **Kullanıcı**: Her fazın kodunu bizzat yazar. Takıldığında spesifik soru

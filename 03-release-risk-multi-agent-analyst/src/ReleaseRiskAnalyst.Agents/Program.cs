@@ -32,32 +32,50 @@ var ollamaHttpClient = new HttpClient
 IChatClient chatClient = new OllamaApiClient(ollamaHttpClient, "llama3.2:3b");
 
 // --- 4) Ajanı kur ---
-// TODO (sen yazacaksın): "instructions" — bu ajanın kimliği ve görevi ne?
-// "Kod Risk Ajanı" olarak, release sinyallerine bakıp risk hakkında ne
-// yapması gerektiğini anlatan bir talimat metni yaz.
-const string instructions =" Sen bir Kod Risk Ajanısın. Bir release'in kod değişiklik sinyallerine bakarak risk değerlendirmesi yaparsın. Release sinyalleri ve servis incident geçmişi verilerini kullanarak, release'in potansiyel risklerini analiz et ve bir risk raporu oluştur. Raporunda, risk seviyesini (düşük, orta, yüksek) belirt ve gerekirse önerilerde bulun.";
+// İki denemede de (serbest metin + "kesin 2 satır yaz" talimatı) model
+// format kuralını yok sayıp veriyi tarif etmeye kaçtı. Çözüm: format
+// zorunluluğunu modele değil API'ye bırakmak — tipli yapılandırılmış çıktı
+// (CodeRiskAssessment + GetResponseAsync<T>, Proje 2'deki guarded LLM ile
+// aynı teknik). Bu sayede instructions artık sadece RİSK MANTIĞINI
+// anlatıyor, çıktı formatını anlatmasına gerek yok.
+const string instructions = @"Sen bir Kod Risk Ajanısın. Sana verilen release
+sinyalleri (linesChanged, reviewerCount, testCoverage, failedCiRunCount)
+üzerinden risk değerlendirmesi yaparsın. Kural: linesChanged yüksek,
+reviewerCount düşük, testCoverage düşük veya failedCiRunCount yüksekse risk
+artar.";
+
+// Mimari plana göre her uzman ajan sadece KENDİ tool'unu görmeli. Faz 4'te
+// ajana sunucudaki her iki tool da veriliyordu (tools: [.. tools]) — bu da
+// ajanın yanlış tool'u (get_service_incident_histories) çağırmasına yol
+// açmıştı. "Kod Risk Ajanı" artık sadece get_release_signals'ı görüyor.
+var kodRiskTools = tools.Where(t => t.Name == "get_release_signals").ToList();
 
 AIAgent agent = new ChatClientAgent(
     chatClient,
     instructions: instructions,
     name: "Kod Risk Ajanı",
     description: "Bir release'in kod değişikliği sinyallerine bakarak risk değerlendirmesi yapar.",
-    tools: [.. tools]);
+    tools: [.. kodRiskTools]);
 
-// --- 5) TODO (sen yazacaksın): ---
-// Bir AgentSession oluştur (agent.CreateSessionAsync()), ajana bir soru sor
-// (agent.RunAsync(message, session)), sonucu ekrana yazdır.
-
-// 3B'lik küçük model "kısa tut" talimatına güvenilir şekilde uymuyor (gerçek
-// hata: 1400+ token üretip 300 saniyelik timeout'u aştı). Prompt'la istemek
-// yetmiyor, API'nin kendisinde sert bir üst sınır (MaxOutputTokens) koymak
-// gerekiyor.
-var runOptions = new ChatClientAgentRunOptions(new ChatOptions { MaxOutputTokens = 200 });
-
+// --- 5) Ajanı, tipli yapılandırılmış çıktı üretecek şekilde çalıştır ---
+// AIAgentExtensions.AsIChatClient: ajanı (tool'ları ve instructions'ı dahil
+// olmak üzere) bir IChatClient'a çeviriyor — Proje 2'deki guarded LLM'de
+// kullandığımız GetResponseAsync<T> deseni buraya da uygulanabiliyor.
+// MaxOutputTokens hâlâ bir güvenlik ağı olarak kalıyor (3B model CPU'da
+// yavaş; sınırsız üretime izin vermemek için).
 AgentSession session = await agent.CreateSessionAsync();
-AgentResponse response = await agent.RunAsync(
-    "payment-service servisi için son release sinyallerini analiz et ve bir risk raporu oluştur.Cevabını en fazla 3-4 cümleyle, kısa ve öz ver.",
-    session,
-    runOptions);
-Console.WriteLine("Ajanın yanıtı:");
+#pragma warning disable MAAI001 // AsIChatClient henüz deneysel (preview) bir API; bilerek kullanıyoruz.
+IChatClient agentAsChatClient = agent.AsIChatClient(session);
+#pragma warning restore MAAI001
+
+var response = await agentAsChatClient.GetResponseAsync<CodeRiskAssessment>(
+    "payment-service servisinin release sinyallerine bak ve risk değerlendirmesi yap.",
+    new ChatOptions { MaxOutputTokens = 450 });
+
+Console.WriteLine("--- Ham yanıt ---");
 Console.WriteLine(response.Text);
+Console.WriteLine("--- /Ham yanıt ---");
+
+CodeRiskAssessment result = response.Result;
+Console.WriteLine($"Risk Seviyesi: {result.Level}");
+Console.WriteLine($"Sebep: {result.Reason}");

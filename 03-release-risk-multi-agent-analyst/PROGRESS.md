@@ -73,7 +73,7 @@ Doğrulanmamış, ileride dikkat edilecek:
 | 2 | Infrastructure (DbContext, migration) + sentetik veri üretici | ✅ |
 | 3 | MCP sunucusu: `get_release_signals`, `get_service_incident_history` araçları | ✅ |
 | 4 | Agent Framework'e giriş: tek ajan (Kod Risk Ajanı) + MCP aracı çağırma | ✅ |
-| 5 | Kalan iki uzman ajan (Test Risk, Geçmiş Risk) + Faz 4'ten kalan 4 kalite sorunu | ⬜ |
+| 5 | Kalan iki uzman ajan (Test Risk, Geçmiş Risk) + Faz 4'ten kalan 4 kalite sorunu | ✅ |
 | 6 | Orkestratör ajan: üç bulguyu toplayıp kanıta dayalı karar | ⬜ |
 | 7 | Minimal API ile dışa açmak | ⬜ |
 | 8 | Kapanış: README + LinkedIn | ⬜ |
@@ -468,6 +468,62 @@ düzeltme turu içeren, dürüstçe kaydedilen bir iterasyon):
 - Enum'ı property'ye bağlamayı unutma hatası, Faz 1'de de görülmüştü —
   artık bu projede **iki kez** tekrarlanan bir desen, kullanıcının
   gelecekte enum yazarken özellikle dikkat etmesi gereken bir nokta.
+
+---
+
+## Faz 5, Bölüm 2 — Kalan iki uzman ajan + somut risk eşikleri (14 Kasım 2026)
+
+- **Durum**: ✅ Review edildi (2026-11-14). Kod tekrarını önlemek için
+  Kod Risk Ajanı'nın kurulum/çalıştırma mantığı `RunRiskAgentAsync` adında
+  tek bir local function'da toplandı (Claude yaptı); `RiskAssessment` tipi
+  üç ajan için de ortak kullanılacak şekilde `CodeRiskAssessment`'tan
+  yeniden adlandırıldı (kullanıcının kararıyla — DRY). İki yeni ajanın
+  `instructions` metinleri **kullanıcı tarafından** yazıldı.
+
+**Yapılanlar**:
+- `RunRiskAgentAsync(name, description, instructions, toolName, question)`
+  — tool filtreleme + `ChatClientAgent` kurulumu + `AsIChatClient` +
+  `GetResponseAsync<RiskAssessment>` adımlarını tek bir fonksiyonda
+  topluyor; üç ajan da bunu çağırıyor, kopya kod yok.
+- **Test Risk Ajanı** (`get_release_signals`, testCoverage/failedCiRunCount
+  odaklı) ve **Geçmiş Risk Ajanı** (`get_service_incident_histories`,
+  severity dağılımı odaklı) kullanıcı tarafından yazıldı, ilk denemede
+  derlendi ve çalıştı.
+- Kullanıcının kavramsal sorusu: ".NET'te ajan 'eklemek' tam olarak nasıl
+  oluyor?" — cevap: özel bir kayıt mekanizması yok, `ChatClientAgent` da
+  sıradan bir sınıf, `new` ile oluşturuluyor (Faz 1'deki `ReleaseSignal`
+  ile aynı mekanik). Büyük sistemlerde bunun yerini DI alır — tam olarak
+  Faz 3'teki `AddDbContext<ReleaseRiskDbContext>` + tool metodunun
+  parametresinde otomatik dolan `db` örneğiyle paralel kuruldu.
+- **İlk üç-ajan testi**: hepsi (Kod/Test/Geçmiş Risk) `"High"` dedi, ama
+  Kod Risk Ajanı'nın kendi gösterdiği sayılar (`testCoverage: 80,
+  failedCiRunCount: 1`) aslında düşük riski destekliyordu — talimatlardaki
+  "yüksek/düşük" gibi **göreceli** ifadelerin model için hiçbir sayısal
+  referans taşımadığı, modelin bu yüzden her şeye "High" demeye eğilimli
+  olduğu anlaşıldı.
+- **Çözüm** (kullanıcı yazdı): `kodRiskInstructions`'a DataGenerator'ın
+  `CalculateReleaseRisk` normalizasyon bölenlerinden türetilen **somut
+  eşikler** eklendi (linesChanged > 1000, reviewerCount < 2, testCoverage
+  < %50, failedCiRunCount > 5). **İkinci testte sonuçlar farklılaştı**:
+  Kod Risk Ajanı artık `"Low"` dedi (gösterdiği sayılar — 0 satır, 5
+  reviewer, %80 coverage, 0 başarısız CI — bu kez gerçekten tutarlıydı),
+  Test ve Geçmiş Risk Ajanları hâlâ `"High"` (kendi verileri gerçekten
+  riskliydi).
+
+**Doğrulama sonucu**: Üç ajan da `dotnet run` ile sırayla çalıştı, exit
+code 0, üçü de kendi tool'unu doğru çağırdı, geçerli enum değerleri ve
+gerçek veriye dayanan, **artık birbirinden farklılaşabilen** risk
+seviyeleri üretti.
+
+**Review notları**:
+- Somut sayısal eşik vermenin, göreceli sözcüklere (yüksek/düşük) göre
+  küçük modellerde çok daha güvenilir kalibrasyon sağladığı doğrulandı —
+  bu ders, ileride yeni bir ajan/prompt yazılırken doğrudan uygulanabilir:
+  "normal/yüksek/düşük" gibi ifadeler yerine her zaman somut bir sayı ver.
+- Üç fazdır (Faz 3 MCP DI, Faz 4 Agent Framework, Faz 5 bu bölüm) aynı
+  "DI nasıl çalışıyor" sorusu farklı bağlamlarda tekrar gündeme geldi —
+  kullanıcının bu kavramı pekiştirmesi birkaç somut örnek gerektirdi, tek
+  seferde oturmadı, bu normal ve beklenen bir öğrenme eğrisi.
 
 ---
 

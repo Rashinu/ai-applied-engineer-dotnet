@@ -31,51 +31,80 @@ var ollamaHttpClient = new HttpClient
 };
 IChatClient chatClient = new OllamaApiClient(ollamaHttpClient, "llama3.2:3b");
 
-// --- 4) Ajanı kur ---
-// İki denemede de (serbest metin + "kesin 2 satır yaz" talimatı) model
-// format kuralını yok sayıp veriyi tarif etmeye kaçtı. Çözüm: format
-// zorunluluğunu modele değil API'ye bırakmak — tipli yapılandırılmış çıktı
-// (CodeRiskAssessment + GetResponseAsync<T>, Proje 2'deki guarded LLM ile
-// aynı teknik). Bu sayede instructions artık sadece RİSK MANTIĞINI
-// anlatıyor, çıktı formatını anlatmasına gerek yok.
-const string instructions = @"Sen bir Kod Risk Ajanısın. Sana verilen release
+// --- 4) Üç uzman ajanın ortak çalıştırma mantığı ---
+// Kod Risk Ajanı'nda kanıtlanan deseni (tool kısıtlama + tipli yapılandırılmış
+// çıktı) tek bir fonksiyonda topluyoruz ki üç ajan için de aynı kodu kopyalamayalım.
+// Local function top-level statement'lar arasında herhangi bir yere yazılabiliyor
+// (Faz 2'de gördüğümüz CS8803 kuralı — bu, class/enum gibi bir tip tanımı değil).
+async Task<RiskAssessment> RunRiskAgentAsync(
+    string name, string description, string instructions, string toolName, string question)
+{
+    var agentTools = tools.Where(t => t.Name == toolName).ToList();
+
+    AIAgent agent = new ChatClientAgent(
+        chatClient,
+        instructions: instructions,
+        name: name,
+        description: description,
+        tools: [.. agentTools]);
+
+    AgentSession session = await agent.CreateSessionAsync();
+#pragma warning disable MAAI001 // AsIChatClient henüz deneysel (preview) bir API; bilerek kullanıyoruz.
+    IChatClient agentAsChatClient = agent.AsIChatClient(session);
+#pragma warning restore MAAI001
+
+    var response = await agentAsChatClient.GetResponseAsync<RiskAssessment>(
+        question,
+        new ChatOptions { MaxOutputTokens = 450 });
+
+    Console.WriteLine($"--- {name} ham yanıt ---");
+    Console.WriteLine(response.Text);
+    return response.Result;
+}
+
+// --- 5) Kod Risk Ajanı (Faz 4-5'te kuruldu, doğrulandı) ---
+const string kodRiskInstructions = @"Sen bir Kod Risk Ajanısın. Sana verilen release
 sinyalleri (linesChanged, reviewerCount, testCoverage, failedCiRunCount)
 üzerinden risk değerlendirmesi yaparsın. Kural: linesChanged yüksek,
 reviewerCount düşük, testCoverage düşük veya failedCiRunCount yüksekse risk
-artar.";
+artar.LinesChanged 1000'in üzeri yükse risk, reviewerCount 2'nin altı düşük risk, testCoverage 50%'nin altı düşük risk, failedCiRunCount 5'in üzeri yüksek risk. Risk seviyesini Low, Medium veya High olarak değerlendir ve sebebini açıkla.";
 
-// Mimari plana göre her uzman ajan sadece KENDİ tool'unu görmeli. Faz 4'te
-// ajana sunucudaki her iki tool da veriliyordu (tools: [.. tools]) — bu da
-// ajanın yanlış tool'u (get_service_incident_histories) çağırmasına yol
-// açmıştı. "Kod Risk Ajanı" artık sadece get_release_signals'ı görüyor.
-var kodRiskTools = tools.Where(t => t.Name == "get_release_signals").ToList();
-
-AIAgent agent = new ChatClientAgent(
-    chatClient,
-    instructions: instructions,
+var kodRiskResult = await RunRiskAgentAsync(
     name: "Kod Risk Ajanı",
     description: "Bir release'in kod değişikliği sinyallerine bakarak risk değerlendirmesi yapar.",
-    tools: [.. kodRiskTools]);
+    instructions: kodRiskInstructions,
+    toolName: "get_release_signals",
+    question: "payment-service servisinin release sinyallerine bak ve risk değerlendirmesi yap.");
 
-// --- 5) Ajanı, tipli yapılandırılmış çıktı üretecek şekilde çalıştır ---
-// AIAgentExtensions.AsIChatClient: ajanı (tool'ları ve instructions'ı dahil
-// olmak üzere) bir IChatClient'a çeviriyor — Proje 2'deki guarded LLM'de
-// kullandığımız GetResponseAsync<T> deseni buraya da uygulanabiliyor.
-// MaxOutputTokens hâlâ bir güvenlik ağı olarak kalıyor (3B model CPU'da
-// yavaş; sınırsız üretime izin vermemek için).
-AgentSession session = await agent.CreateSessionAsync();
-#pragma warning disable MAAI001 // AsIChatClient henüz deneysel (preview) bir API; bilerek kullanıyoruz.
-IChatClient agentAsChatClient = agent.AsIChatClient(session);
-#pragma warning restore MAAI001
+// --- 6) Test Risk Ajanı ---
+// TODO (sen yazacaksın): testCoverage ve failedCiRunCount'a odaklanan bir
+// instructions metni — Kod Risk Ajanı'nınkiyle aynı kalıpta (hangi sinyal
+// artınca/azalınca risk artar).
+const string testRiskInstructions = "Test Coverage ve failedCiRunCount sinyallerine odaklanan bir risk değerlendirmesi yap. Kural: testCoverage düşük veya failedCiRunCount yüksekse risk artar.";
 
-var response = await agentAsChatClient.GetResponseAsync<CodeRiskAssessment>(
-    "payment-service servisinin release sinyallerine bak ve risk değerlendirmesi yap.",
-    new ChatOptions { MaxOutputTokens = 450 });
+var testRiskResult = await RunRiskAgentAsync(
+    name: "Test Risk Ajanı",
+    description: "Bir release'in test coverage ve CI sinyallerine bakarak risk değerlendirmesi yapar.",
+    instructions: testRiskInstructions,
+    toolName: "get_release_signals",
+    question: "payment-service servisinin test coverage ve CI sinyallerine bak ve risk değerlendirmesi yap.");
 
-Console.WriteLine("--- Ham yanıt ---");
-Console.WriteLine(response.Text);
-Console.WriteLine("--- /Ham yanıt ---");
+// --- 7) Geçmiş Risk Ajanı ---
+// TODO (sen yazacaksın): bu ajan artık release sinyallerine değil, servisin
+// GEÇMİŞ INCIDENT kayıtlarına (severity: Low/Medium/High/Critical) bakıyor —
+// farklı bir tool (get_service_incident_histories), farklı bir risk mantığı
+// (çok sayıda/ağır severity'li incident = yüksek risk).
+const string gecmisRiskInstructions = "Bir servisin geçmiş incident kayıtlarına bakarak risk değerlendirmesi yap. Kural: çok sayıda veya ağır severity'li incident = yüksek risk.";
 
-CodeRiskAssessment result = response.Result;
-Console.WriteLine($"Risk Seviyesi: {result.Level}");
-Console.WriteLine($"Sebep: {result.Reason}");
+var gecmisRiskResult = await RunRiskAgentAsync(
+    name: "Geçmiş Risk Ajanı",
+    description: "Bir servisin geçmiş incident kayıtlarına bakarak risk değerlendirmesi yapar.",
+    instructions: gecmisRiskInstructions,
+    toolName: "get_service_incident_histories",
+    question: "payment-service servisinin incident geçmişine bak ve risk değerlendirmesi yap.");
+
+// --- 8) Üç ajanın sonucunu yazdır ---
+Console.WriteLine();
+Console.WriteLine($"Kod Risk Ajanı       -> Risk Seviyesi: {kodRiskResult.Level} | Sebep: {kodRiskResult.Reason}");
+Console.WriteLine($"Test Risk Ajanı      -> Risk Seviyesi: {testRiskResult.Level} | Sebep: {testRiskResult.Reason}");
+Console.WriteLine($"Geçmiş Risk Ajanı    -> Risk Seviyesi: {gecmisRiskResult.Level} | Sebep: {gecmisRiskResult.Reason}");

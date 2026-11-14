@@ -1,4 +1,4 @@
-public class CodeRiskAssessment
+public class RiskAssessment
 {
     public enum RiskLevel
     {

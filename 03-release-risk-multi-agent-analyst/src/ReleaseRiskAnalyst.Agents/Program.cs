@@ -103,8 +103,92 @@ var gecmisRiskResult = await RunRiskAgentAsync(
     toolName: "get_service_incident_histories",
     question: "payment-service servisinin incident geçmişine bak ve risk değerlendirmesi yap.");
 
-// --- 8) Üç ajanın sonucunu yazdır ---
+// --- 8) Nihai kararı HESAPLA (modele sorma) ---
+// Teşhis testi gösterdi ki: tool'suz (tools: []) bir ajanda yapılandırılmış
+// çıktı güvenilir değil — model bir karara varıyor ("Medium olarak
+// decided") ama bunu enum alanına hiç yazmıyor, serbest metne gömüyor.
+// Çözüm: instructions'daki çoğunluk kuralını modele bırakmak yerine, zaten
+// elimizde olan üç Level değerini C#'ta karşılaştırıp kararı BİZ veriyoruz
+// — tıpkı Faz 5'te format zorunluluğunu modelden API'ye taşıdığımız gibi,
+// burada da KARARIN KENDİSİNİ modelden koda taşıyoruz.
+(RiskAssessment.RiskLevel Level, string BasedOnAgents) ComputeFinalVerdict(
+    (string Name, RiskAssessment.RiskLevel Level) kod,
+    (string Name, RiskAssessment.RiskLevel Level) test,
+    (string Name, RiskAssessment.RiskLevel Level) gecmis)
+{
+    var all = new[] { kod, test, gecmis };
+    int highCount = all.Count(a => a.Level == RiskAssessment.RiskLevel.High);
+    int mediumCount = all.Count(a => a.Level == RiskAssessment.RiskLevel.Medium);
+
+    // instructions'da yazdığımız kural: en az ikisi High -> High;
+    // hiçbiri High değil ama en az biri Medium -> en az Medium; aksi -> Low.
+    var finalLevel = highCount >= 2
+        ? RiskAssessment.RiskLevel.High
+        : (highCount >= 1 || mediumCount >= 1)
+            ? RiskAssessment.RiskLevel.Medium
+            : RiskAssessment.RiskLevel.Low;
+
+    var basedOn = all.Where(a => a.Level == finalLevel).Select(a => a.Name).ToList();
+    if (basedOn.Count == 0)
+        basedOn = all.Where(a => a.Level != RiskAssessment.RiskLevel.Low).Select(a => a.Name).ToList();
+
+    return (finalLevel, string.Join(" ve ", basedOn));
+}
+
+var (finalLevel, basedOnAgents) = ComputeFinalVerdict(
+    ("Kod Risk Ajanı", kodRiskResult.Level),
+    ("Test Risk Ajanı", testRiskResult.Level),
+    ("Geçmiş Risk Ajanı", gecmisRiskResult.Level));
+
+// --- 9) Orkestratör ajan: kararı AÇIKLA (modele sor) ---
+// Artık modelden bir karar değil, zaten verilmiş kararı gerekçelendiren
+// düz bir metin istiyoruz — JSON şeması/enum alanı yok, bu yüzden
+// "eksik alan" riski de ortadan kalkıyor.
+const string orkestratorInstructions = @"Sen bir Orkestratör ajanısın. Sana üç uzman
+ajanın (Kod Risk, Test Risk, Geçmiş Risk) risk seviyesi, sebebi ve zaten
+verilmiş olan NİHAİ risk seviyesi verilecek. Görevin bu nihai kararı,
+hangi ajan(lar)ın bulgusuna dayandığını da belirterek, kısa bir paragrafla
+açıklamak. Kararı SEN vermiyorsun, sadece zaten verilmiş kararı açıklıyorsun.";
+
+AIAgent orkestratorAgent = new ChatClientAgent(
+    chatClient,
+    instructions: orkestratorInstructions,
+    name: "Orkestratör",
+    description: "Üç uzman ajanın risk bulgularını birleştirip nihai kararı gerekçelendirir.",
+    tools: []);
+
+AgentSession orkestratorSession = await orkestratorAgent.CreateSessionAsync();
+#pragma warning disable MAAI001 // AsIChatClient henüz deneysel (preview) bir API; bilerek kullanıyoruz.
+IChatClient orkestratorAsChatClient = orkestratorAgent.AsIChatClient(orkestratorSession);
+#pragma warning restore MAAI001
+
+string orkestratorPrompt = $@"
+Kod Risk Ajanı: Seviye={kodRiskResult.Level}, Sebep={kodRiskResult.Reason}
+Test Risk Ajanı: Seviye={testRiskResult.Level}, Sebep={testRiskResult.Reason}
+Geçmiş Risk Ajanı: Seviye={gecmisRiskResult.Level}, Sebep={gecmisRiskResult.Reason}
+NİHAİ KARAR (zaten verildi): {finalLevel}, dayanak: {basedOnAgents}
+Bu nihai kararı kısa bir paragrafla açıkla.";
+
+// Burada GetResponseAsync<T> değil, düz GetResponseAsync kullanıyoruz —
+// çünkü artık bir enum/yapılandırılmış alan istemiyoruz, sadece serbest
+// metin. Enum alanı olmayınca "eksik alan" riski de yok.
+var orkestratorResponse = await orkestratorAsChatClient.GetResponseAsync(
+    orkestratorPrompt,
+    new ChatOptions { MaxOutputTokens = 450 });
+
+Console.WriteLine("--- Orkestratör ham yanıt ---");
+Console.WriteLine(orkestratorResponse.Text);
+
+FinalRiskVerdict finalVerdict = new()
+{
+    Level = finalLevel,
+    Reason = orkestratorResponse.Text,
+    BasedOnAgents = basedOnAgents,
+};
+
+// --- 10) Dört ajanın da sonucunu yazdır ---
 Console.WriteLine();
 Console.WriteLine($"Kod Risk Ajanı       -> Risk Seviyesi: {kodRiskResult.Level} | Sebep: {kodRiskResult.Reason}");
 Console.WriteLine($"Test Risk Ajanı      -> Risk Seviyesi: {testRiskResult.Level} | Sebep: {testRiskResult.Reason}");
 Console.WriteLine($"Geçmiş Risk Ajanı    -> Risk Seviyesi: {gecmisRiskResult.Level} | Sebep: {gecmisRiskResult.Reason}");
+Console.WriteLine($"NİHAİ KARAR          -> Risk Seviyesi: {finalVerdict.Level} | Sebep: {finalVerdict.Reason} | Dayanak: {finalVerdict.BasedOnAgents}");

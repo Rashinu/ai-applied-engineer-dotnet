@@ -74,7 +74,7 @@ Doğrulanmamış, ileride dikkat edilecek:
 | 3 | MCP sunucusu: `get_release_signals`, `get_service_incident_history` araçları | ✅ |
 | 4 | Agent Framework'e giriş: tek ajan (Kod Risk Ajanı) + MCP aracı çağırma | ✅ |
 | 5 | Kalan iki uzman ajan (Test Risk, Geçmiş Risk) + Faz 4'ten kalan 4 kalite sorunu | ✅ |
-| 6 | Orkestratör ajan: üç bulguyu toplayıp kanıta dayalı karar | ⬜ |
+| 6 | Orkestratör ajan: üç bulguyu toplayıp kanıta dayalı karar | ✅ |
 | 7 | Minimal API ile dışa açmak | ⬜ |
 | 8 | Kapanış: README + LinkedIn | ⬜ |
 
@@ -524,6 +524,69 @@ seviyeleri üretti.
   "DI nasıl çalışıyor" sorusu farklı bağlamlarda tekrar gündeme geldi —
   kullanıcının bu kavramı pekiştirmesi birkaç somut örnek gerektirdi, tek
   seferde oturmadı, bu normal ve beklenen bir öğrenme eğrisi.
+
+---
+
+## Faz 6 — Orkestratör ajan (15 Kasım 2026)
+
+- **Durum**: ✅ Review edildi (2026-11-15). `FinalRiskVerdict.cs` (Level +
+  Reason + BasedOnAgents) kullanıcı tarafından yazıldı. Orkestratörün
+  kurulumu ve nihai karar hesaplama mantığı birkaç hata turu sonrası
+  Claude tarafından yeniden tasarlandı (aşağıda detaylı).
+
+**Yapılanlar — hata ayıklama süreci**:
+1. **İlk tasarım**: Orkestratöre üç uzman ajanın bulgularını (Level +
+   Reason) prompt olarak verip, `GetResponseAsync<FinalRiskVerdict>` ile
+   ondan Level + Reason + BasedOnAgents'ın **üçünü birden** üretmesini
+   istedik. Sonuç: `level` alanı JSON'da **tamamen eksikti** — enum
+   non-nullable olduğu için deserialize sessizce enum'ın ilk değerine
+   (`Low`) düştü. Nihai karar yanlışlıkla "Low" göründü, oysa iki uzman
+   ajan "High" demişti — bu, gerçek bir karar değil, sessiz bir varsayılan
+   değer hatasıydı.
+2. **Teşhis testi** (kullanıcının önerisiyle): sorunun "aynı anda 3 alan
+   istemek" olup olmadığını izole etmek için, geçici olarak 2 alanlı
+   (zaten kanıtlanmış) `RiskAssessment` tipiyle denendi. **Sonuç aynıydı**
+   — `level` yine tamamen eksikti, hatta ham yanıtta model kendi kendine
+   "nihai risk seviyesi Medium olarak being decided" diye bir karara
+   varmış ama bunu yapılandırılmış alana hiç yazmamıştı. Bu, hipotezi
+   çürüttü: sorun "çok alan istemek" değil, **tool'suz (tools: []) bir
+   ajanda yapılandırılmış çıktının genel olarak güvenilmez olması**
+   (uzman ajanlarda — tool çağıran — aynı mekanizma güvenilir
+   çalışmıştı).
+3. **Gerçek çözüm**: Format zorunluluğunu modelden API'ye taşıma dersini
+   (Faz 5) bir adım ileri götürüp, **kararın kendisini de modelden koda
+   taşımak**. `ComputeFinalVerdict` adında saf bir C# local function —
+   instructions'da zaten yazılı olan çoğunluk kuralını (en az ikisi High
+   → High; aksi halde en az biri Medium → Medium; aksi → Low) üç
+   `RiskAssessment.RiskLevel` değerini karşılaştırarak deterministik
+   olarak hesaplıyor, `BasedOnAgents`'ı da (nihai seviyeyle aynı seviyeyi
+   veren ajanların adları) aynı şekilde hesaplıyor. Orkestratöre artık bir
+   karar sorulmuyor — zaten verilmiş kararı **açıklayan bir paragraf**
+   yazması isteniyor, bunun için `GetResponseAsync<T>` değil düz
+   `GetResponseAsync` (enum/şema yok, sadece serbest metin) kullanılıyor.
+
+**Doğrulama sonucu**: Dört ajan da (`dotnet run`, exit code 0) sırayla
+çalıştı. Üç uzman ajan da "High" dedi; `ComputeFinalVerdict` doğru şekilde
+`Level: High`, `BasedOnAgents: "Kod Risk Ajanı ve Test Risk Ajanı ve
+Geçmiş Risk Ajanı"` hesapladı; orkestratörün ürettiği `Reason` paragrafı
+üç ajanın bulgularına tek tek, doğru şekilde atıfta bulunuyordu —
+mimarinin "kanıta dayalı karar" şartı (hangi ajanın bulgusuna dayandığı
+açıkça belirtilmeli) karşılandı.
+
+**Review notları**:
+- Bu fazın en önemli dersi: **yapılandırılmış çıktının güvenilirliği,
+  ajanın tool kullanıp kullanmamasına göre değişebiliyor** — bu projede
+  ilk kez karşılaşılan bir nüans, önceki hiçbir fazda (hepsi tool çağıran
+  ajanlardı) görülmemişti.
+- "Modelden değil koddan iste" prensibi burada (format → Faz 5, karar →
+  Faz 6) iki kez, artan ölçekte uygulandı. Bu, LLM-tabanlı sistemlerde
+  genel bir tasarım ilkesi olarak kayda değer: **LLM'i belirsizlik/
+  sentezleme gerektiren işler için kullan (doğal dil açıklaması), kesin/
+  deterministik olabilecek kararları koda bırak.**
+- Kullanıcının "sadece onu istesek çalışıp çalışmadığını anlarız" önerisi
+  (teşhis testi) doğru bir hata ayıklama refleksiydi — hipotezi çürütüp
+  asıl sebebe (tool'suz ajan + yapılandırılmış çıktı) daha hızlı ulaşılmasını
+  sağladı.
 
 ---
 

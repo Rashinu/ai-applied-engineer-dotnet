@@ -5,5 +5,6 @@
     <Project Path="src/ReleaseRiskAnalyst.Infrastructure/ReleaseRiskAnalyst.Infrastructure.csproj" />
     <Project Path="src/ReleaseRiskAnalyst.McpServer/ReleaseRiskAnalyst.McpServer.csproj" />
     <Project Path="src/ReleaseRiskAnalyst.Agents/ReleaseRiskAnalyst.Agents.csproj" />
+    <Project Path="src/ReleaseRiskAnalyst.Api/ReleaseRiskAnalyst.Api.csproj" />
   </Folder>
 </Solution>

@@ -75,7 +75,7 @@ Doğrulanmamış, ileride dikkat edilecek:
 | 4 | Agent Framework'e giriş: tek ajan (Kod Risk Ajanı) + MCP aracı çağırma | ✅ |
 | 5 | Kalan iki uzman ajan (Test Risk, Geçmiş Risk) + Faz 4'ten kalan 4 kalite sorunu | ✅ |
 | 6 | Orkestratör ajan: üç bulguyu toplayıp kanıta dayalı karar | ✅ |
-| 7 | Minimal API ile dışa açmak | ⬜ |
+| 7 | Minimal API ile dışa açmak | ✅ |
 | 8 | Kapanış: README + LinkedIn | ⬜ |
 
 Not: Bu iskelet kesin değil — Proje 1/2'de olduğu gibi ilerledikçe revize
@@ -587,6 +587,64 @@ açıkça belirtilmeli) karşılandı.
   (teşhis testi) doğru bir hata ayıklama refleksiydi — hipotezi çürütüp
   asıl sebebe (tool'suz ajan + yapılandırılmış çıktı) daha hızlı ulaşılmasını
   sağladı.
+
+---
+
+## Faz 7 — Minimal API (16 Kasım 2026)
+
+- **Durum**: ✅ Review edildi (2026-11-16). `ReleaseRiskAnalyst.Api`
+  projesi, `RiskAnalysisService` sınıfı (Faz 4-6'nın kanıtlanmış mantığının
+  sabit "payment-service" yerine herhangi bir `serviceName` kabul eden,
+  DI'a taşınmış hali) ve DI/MCP bağlantı kurulumu Claude tarafından yapıldı
+  (düşük öğrenme değerli port işlemi — zaten Faz 4-6'da satır satır
+  öğrenilmiş mantığın tekrarı). `GET /risk-assessment/{serviceName}`
+  endpoint'inin kendisi **kullanıcı tarafından** yazıldı.
+
+**Yapılanlar**:
+- Mimari fark: konsol uygulamasında (Faz 4-6) MCP bağlantısı zaten "bir
+  kere" kuruluyordu çünkü program baştan sona tek seferlik çalışıyordu.
+  Bir web uygulamasında birden fazla istek geleceği için bu bağlantı
+  (`McpClient.CreateAsync` + `ListToolsAsync`) **uygulama başlarken bir
+  kere** kurulup `builder.Services.AddSingleton(...)` ile DI'a kaydedildi
+  — her istek aynı bağlantıyı paylaşıyor, her seferinde yeniden kurulmuyor.
+- Kullanıcı ilk denemesinde **MVC Controller** deseniyle (`[HttpGet(...)]`
+  attribute'u + `IActionResult` dönen bir class metodu) karıştı — bu
+  proje baştan beri **Minimal API** kullanıyor (`app.MapGet(...)`, hiç
+  class/attribute yok). Ayrıca top-level statements dosyasında doğrudan
+  bir metot tanımlanamayacağı (Faz 2'deki "local function olabilir, class/
+  metot tanımı olamaz" kuralının bir başka yüzü) hatırlatıldı. Doğru
+  kalıba (`app.MapGet("/risk-assessment/{serviceName}", async (string
+  serviceName, RiskAnalysisService service) => ...)`) geçildi — DI,
+  parametre tipine göre otomatik dolduruyor (Faz 3'teki `db` parametresiyle
+  birebir aynı mekanik).
+- Gerçek bir HTTP isteğiyle (`curl http://localhost:5017/risk-assessment/
+  payment-service`) uçtan uca test edildi.
+
+**Doğrulama sonucu**: `dotnet build` — 0 hata. Gerçek istek, gerçek JSON
+döndü:
+```json
+{"serviceName":"payment-service","kodRiskAjani":{"level":2,...},
+ "testRiskAjani":{"level":0,...},"gecmisRiskAjani":{"level":2,...},
+ "nihaiKarar":{"level":2,...,"basedOnAgents":"Kod Risk Ajanı ve Geçmiş
+ Risk Ajanı"}}
+```
+Bu çalıştırmada Test Risk Ajanı "Low" (0), diğer ikisi "High" (2) dedi;
+`ComputeFinalVerdict` kuralına göre (en az ikisi High → High) nihai karar
+doğru şekilde "High" hesaplandı ve `basedOnAgents` tam doğru iki ajanı
+listeledi — Faz 6'daki deterministik karar mantığı gerçek bir HTTP
+isteği altında da doğrulanmış oldu.
+
+**Not**: `level` alanları JSON'da sayı (`0`/`1`/`2`) olarak geliyor
+(.NET'in varsayılan enum serileştirmesi) — string'e (`"Low"`/`"High"`)
+çevirme seçeneği sunuldu, **kullanıcı bilinçli olarak sayısal kalmasını
+tercih etti** ("sayı olarak gelmesi daha mantıklı bence").
+
+**Review notları**:
+- Controller/Minimal API karışıklığı, bu projede ilk kez karşılaşılan
+  yeni bir kavram karışıklığı deseni — muhtemelen internetteki ASP.NET
+  Core örneklerinin çoğunun hâlâ Controller tabanlı olmasından kaynaklı.
+  Netleştirildi: bu repo'daki tüm projeler (01, 02, 03) Minimal API
+  kullanıyor, bilinçli bir tutarlılık tercihi.
 
 ---
 

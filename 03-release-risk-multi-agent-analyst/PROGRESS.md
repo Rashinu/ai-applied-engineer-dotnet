@@ -76,7 +76,7 @@ Doğrulanmamış, ileride dikkat edilecek:
 | 5 | Kalan iki uzman ajan (Test Risk, Geçmiş Risk) + Faz 4'ten kalan 4 kalite sorunu | ✅ |
 | 6 | Orkestratör ajan: üç bulguyu toplayıp kanıta dayalı karar | ✅ |
 | 7 | Minimal API ile dışa açmak | ✅ |
-| 8 | Kapanış: README + LinkedIn | ⬜ |
+| 8 | Kapanış: README + LinkedIn | ✅ |
 
 Not: Bu iskelet kesin değil — Proje 1/2'de olduğu gibi ilerledikçe revize
 edilir.
@@ -645,6 +645,35 @@ tercih etti** ("sayı olarak gelmesi daha mantıklı bence").
   Core örneklerinin çoğunun hâlâ Controller tabanlı olmasından kaynaklı.
   Netleştirildi: bu repo'daki tüm projeler (01, 02, 03) Minimal API
   kullanıyor, bilinçli bir tutarlılık tercihi.
+
+---
+
+## Faz 8 — Kapanış (16 Kasım 2026)
+
+- **Durum**: ✅ Review edildi (2026-11-16). `README.md` ve `LINKEDIN.md`
+  Claude tarafından yazıldı (Proje 2 kapanışındaki gibi, kullanıcının
+  açık talebiyle) — mimari, proje yapısı tablosu, çalıştırma talimatları,
+  gerçek bir API yanıtı örneği ve "Bilinen Sınırlamalar" bölümü (bu
+  projede gerçekten yaşanan sorunlar: küçük model kalibrasyonu, tool'suz
+  ajanlarda yapılandırılmış çıktının güvenilmezliği, yavaş CPU inference).
+  Root `README.md` Proje 3 satırı "✅ Tamamlandı" olarak güncellendi.
+- **Proje 3 tamamlandı**: Faz 1-8, hepsi ✅. Sentetik veri → MCP sunucusu
+  → üç uzman ajan → deterministik orkestratör → Minimal API, uçtan uca
+  çalışan ve gerçek HTTP isteğiyle doğrulanmış bir sistem.
+
+**Review notları**:
+- Bu proje, önceki ikisinden (1 ve 2) daha fazla **gerçek, çözülmesi
+  gereken hata** içerdi (Docker Desktop'ın disk alanı nedeniyle tamamen
+  sıfırlanması, orkestratörün sessizce yanlış karar vermesi, MVC/Minimal
+  API karışıklığı, enum/namespace tekrar eden hataları) — ama bu hataların
+  her biri somut bir ders bıraktı (madde 0 tekniği, format/kararı koddan
+  iste, DI'ın ajanlara nasıl uygulandığı). Radar'daki 8+ fikrin (H, I, J,
+  L, M, N, P, Q, R, U) önünü açan bir temel kuruldu.
+- Üç projenin de artık aynı iskeleti (Faz/Blok bazlı PROGRESS.md, şeffaf
+  Claude-sınırı, Minimal API tutarlılığı, Madde 0 risk doğrulaması)
+  paylaşması, bu noktada kendi kendine bir "kurumsal standart" haline
+  geldi — yeni bir proje seçildiğinde bu kalıbı tekrar kurmaya gerek
+  kalmayacak, doğrudan uygulanacak.
 
 ---
 
